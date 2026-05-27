@@ -2,6 +2,9 @@ import time
 import datetime
 import yfinance as yf
 import pandas as pd
+import urllib.request
+import urllib.parse
+import xml.etree.ElementTree as ET
 
 try:
     from init_cache_db import GlobalStockInfo
@@ -152,23 +155,33 @@ def get_company_profile(symbol):
         session.close()
 
 def get_market_news(symbol):
-    """ Get News from yfinance """
+    """ Get News from Google News RSS in Thai """
     try:
-        ticker = yf.Ticker(symbol)
-        news = ticker.news
+        # Resolve Thai stock suffix if it has .BK
+        display_symbol = symbol.replace('.BK', '')
+        query = urllib.parse.quote(f"{display_symbol} หุ้น")
+        url = f"https://news.google.com/rss/search?q={query}&hl=th&gl=TH&ceid=TH:th"
+        
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response = urllib.request.urlopen(req, timeout=10)
+        xml_data = response.read()
+        root = ET.fromstring(xml_data)
+        
         news_items = []
-        for item in news:
-            content = item.get('content', {})
-            headline = content.get('title') or item.get('title')
-            if headline:
+        for item in root.findall('.//item')[:3]:  # Top 3 news items
+            title = item.find('title')
+            link = item.find('link')
+            pub_date = item.find('pubDate')
+            
+            if title is not None:
                 news_items.append({
-                    "headline": headline,
-                    "summary": content.get('summary') or item.get('summary', ''),
-                    "url": content.get('canonicalUrl', {}).get('url') or item.get('link', '')
+                    "headline": title.text,
+                    "summary": f"เผยแพร่เมื่อ: {pub_date.text}" if pub_date is not None else "",
+                    "url": link.text if link is not None else ""
                 })
         return news_items
     except Exception as e:
-        print(f"[YFINANCE NEWS ERROR] {symbol}: {e}")
+        print(f"[GOOGLE NEWS RSS ERROR] {symbol}: {e}")
         return []
 
 def get_candles_and_indicators(symbol):
@@ -217,5 +230,29 @@ def get_candles_and_indicators(symbol):
         return None
 
 def get_general_market_news():
-    """ Get General Market News from S&P 500 news on yfinance """
-    return get_market_news("^GSPC")
+    """ Get General Market News from Google News RSS """
+    try:
+        query = urllib.parse.quote("ตลาดหุ้นไทย")
+        url = f"https://news.google.com/rss/search?q={query}&hl=th&gl=TH&ceid=TH:th"
+        
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        response = urllib.request.urlopen(req, timeout=10)
+        xml_data = response.read()
+        root = ET.fromstring(xml_data)
+        
+        news_items = []
+        for item in root.findall('.//item')[:3]:
+            title = item.find('title')
+            link = item.find('link')
+            pub_date = item.find('pubDate')
+            
+            if title is not None:
+                news_items.append({
+                    "headline": title.text,
+                    "summary": f"เผยแพร่เมื่อ: {pub_date.text}" if pub_date is not None else "",
+                    "url": link.text if link is not None else ""
+                })
+        return news_items
+    except Exception as e:
+        print(f"[GOOGLE NEWS RSS ERROR] General Market: {e}")
+        return []
