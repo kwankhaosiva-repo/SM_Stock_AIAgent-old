@@ -79,10 +79,6 @@ def process_stock_list(stocks, callback_func=None):
 
         # 4. Rate Limit Logic (The crucial shared part)
         if index < total_items - 1:
-            if symbol.upper().endswith(".BK"):
-                time.sleep(1) # Thai Stocks: 1s
-            else:
-                print(f"[RATE LIMIT] Waiting 15s for Global Stock...")
-                time.sleep(15) # Global Stocks: 15s
+            time.sleep(1) # Sleep 1s to be polite to Yahoo Finance
                 
     return flex_bubbles

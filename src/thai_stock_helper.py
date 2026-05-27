@@ -1,129 +1,99 @@
-from settrade_v2 import Investor
-from config import Config
+import yfinance as yf
+import pandas as pd
 import logging
-
-# Global Cache for Investor (Singleton Pattern)
-_INVESTOR_INSTANCE = None
 
 class SettradeHelper:
     def __init__(self):
-        global _INVESTOR_INSTANCE
-        
-        self.app_id = Config.SETTRADE_APP_ID
-        self.app_secret = Config.SETTRADE_APP_SECRET
-        self.broker_id = Config.SETTRADE_BROKER_ID
-        self.app_code = Config.SETTRADE_APP_CODE
-        self.is_sandbox = Config.SETTRADE_IS_SANDBOX
-        
-        if _INVESTOR_INSTANCE:
-             self.investor = _INVESTOR_INSTANCE
-             # logging.info("[SETTRADE] Reusing Cached Investor")
-        else:
-             try:
-                 # Sandbox Parameter Logic
-                 b_id = "SANDBOX" if self.is_sandbox else self.broker_id
-                 a_code = "SANDBOX" if self.is_sandbox else self.app_code
-                 
-                 self.investor = Investor(
-                     app_id=self.app_id,
-                     app_secret=self.app_secret,
-                     broker_id=b_id,
-                     app_code=a_code,
-                     is_auto_queue=False
-                 )
-                 _INVESTOR_INSTANCE = self.investor
-                 print("[SETTRADE] Login Successful (New Session)")
-             except Exception as e:
-                 print(f"[SETTRADE LOGIN ERROR] {e}")
-                 self.investor = None
+        pass
 
     def get_quote(self, symbol):
-        """ Get Realtime Quote from SET """
-        if not self.investor:
-            print("[SETTRADE] Investor not initialized")
-            return None
-            
+        """ Get Realtime Quote from yfinance """
         try:
             # Clean Symbol
-            symbol = symbol.upper().replace(".BK", "").strip()
+            symbol = symbol.upper().replace(".BK", "").strip() + ".BK"
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
             
-            # Get Market Data Object
-            market = self.investor.MarketData()
-            quote = market.get_quote_symbol(symbol)
-            if not quote: return None
+            if not info or ('currentPrice' not in info and 'regularMarketPrice' not in info):
+                # Try history fallback in case info fails
+                history_df = ticker.history(period="2d")
+                if history_df.empty:
+                    return None
+                price = float(history_df['Close'].iloc[-1])
+                prev_close = float(history_df['Close'].iloc[-2]) if len(history_df) > 1 else price
+                high = float(history_df['High'].max())
+                low = float(history_df['Low'].min())
+                vol = float(history_df['Volume'].iloc[-1])
+                pe = 0.0
+                pbv = 0.0
+                yd = 0.0
+            else:
+                price = float(info.get('currentPrice') or info.get('regularMarketPrice') or 0.0)
+                prev_close = float(info.get('previousClose') or price)
+                high = float(info.get('dayHigh') or price)
+                low = float(info.get('dayLow') or price)
+                vol = float(info.get('volume') or 0.0)
+                pe = float(info.get('trailingPE') or 0.0)
+                pbv = float(info.get('priceToBook') or 0.0)
+                yd = float(info.get('dividendYield') or 0.0)
             
-            # Helper to safely get float
-            def safe_float(val):
-                try: 
-                    if val is None or val == '-': return 0.0
-                    return float(val)
-                except: return 0.0
-
-            # Handle Attributes (SDK v2)
-            # Use getattr with default None to handle missing attributes safely
-            try:
-                last_price = getattr(quote, 'last', None) or 0
-                
-                return {
-                    "price": safe_float(last_price),
-                    "change": safe_float(getattr(quote, 'change', 0)),
-                    "percent_change": safe_float(getattr(quote, 'percentChange', 0)),
-                    "high": safe_float(getattr(quote, 'high', 0)),
-                    "low": safe_float(getattr(quote, 'low', 0)),
-                    "vol": safe_float(getattr(quote, 'totalVolume', 0)), # 'volume' might be 'totalVolume' in some versions
-                    "val": safe_float(getattr(quote, 'totalValue', 0)),  # 'value' might be 'totalValue'
-                    "pe": safe_float(getattr(quote, 'pe', 0)),         
-                    "pbv": safe_float(getattr(quote, 'pbv', 0)),
-                    "yield": safe_float(getattr(quote, 'dividendYield', 0)) # 'yield' might be 'dividendYield'
-                }
-            except AttributeError:
-                 # Fallback for some SDK versions returning dict
-                 if isinstance(quote, dict):
-                     return {
-                        "price": safe_float(quote.get('last', 0)),
-                        "change": safe_float(quote.get('change', 0)),
-                        "percent_change": safe_float(quote.get('percentChange', 0)),
-                        "high": safe_float(quote.get('high', 0)),
-                        "low": safe_float(quote.get('low', 0)),
-                        "vol": safe_float(quote.get('totalVolume', 0) or quote.get('volume', 0)),
-                        "val": safe_float(quote.get('totalValue', 0) or quote.get('value', 0)),
-                        "pe": safe_float(quote.get('pe', 0)),
-                        "pbv": safe_float(quote.get('pbv', 0)),
-                        "yield": safe_float(quote.get('dividendYield', 0) or quote.get('yield', 0))
-                     }
-                 return None
+            change = price - prev_close
+            percent_change = (change / prev_close) * 100 if prev_close else 0.0
+            
+            return {
+                "price": price,
+                "change": change,
+                "percent_change": percent_change,
+                "high": high,
+                "low": low,
+                "vol": vol,
+                "val": vol * price,
+                "pe": pe,
+                "pbv": pbv,
+                "yield": yd
+            }
         except Exception as e:
-            print(f"[SETTRADE QUOTE ERROR] {symbol}: {e}")
+            print(f"[YFINANCE THAI QUOTE ERROR] {symbol}: {e}")
             return None
 
     def get_candles(self, symbol, interval='1d', limit=60):
         """ Get Historical Candles """
-        if not self.investor: return None
         try:
-            symbol = symbol.upper().replace(".BK", "").strip()
-            market = self.investor.MarketData()
+            symbol = symbol.upper().replace(".BK", "").strip() + ".BK"
+            ticker = yf.Ticker(symbol)
             
-            # history args: symbol, interval, limit
-            candles = market.get_candlestick(symbol, interval, limit=limit)
-             
-            # Expected Structure check
-            if not candles or 'close' not in candles:
+            # Map intervals
+            y_interval = "1d"
+            if interval == '1m': y_interval = '1m'
+            elif interval == '5m': y_interval = '5m'
+            elif interval == '15m': y_interval = '15m'
+            elif interval == '30m': y_interval = '30m'
+            elif interval == '1h': y_interval = '1h'
+            elif interval == '1d': y_interval = '1d'
+            elif interval == '1wk': y_interval = '1wk'
+            elif interval == '1mo': y_interval = '1mo'
+            
+            history_df = ticker.history(period=f"{limit * 2}d", interval=y_interval)
+            if history_df.empty:
                 return None
                 
+            history_df = history_df.tail(limit)
+            
+            # Format time index to match string format
+            time_list = [t.strftime('%Y-%m-%d %H:%M:%S') for t in history_df.index]
+            
             return {
-                "time": candles.get('time', []),
-                "close": [float(x) for x in candles.get('close', [])],
-                "high": [float(x) for x in candles.get('high', [])],
-                "low": [float(x) for x in candles.get('low', [])]
+                "time": time_list,
+                "close": [float(x) for x in history_df['Close'].tolist()],
+                "high": [float(x) for x in history_df['High'].tolist()],
+                "low": [float(x) for x in history_df['Low'].tolist()]
             }
-
         except Exception as e:
-            print(f"[SETTRADE CANDLES ERROR] {symbol}: {e}")
+            print(f"[YFINANCE THAI CANDLES ERROR] {symbol}: {e}")
             return None
 
-# Wrapper Function used by analyzer.py
 def get_thai_stock_data(symbol):
-    helper = SettradeHelper() # Will use Cached Instance
+    helper = SettradeHelper()
     
     # 1. Get Quote (Realtime)
     quote = helper.get_quote(symbol)
@@ -131,7 +101,6 @@ def get_thai_stock_data(symbol):
     
     # 2. Get History (Candles)
     history = []
-    # Fetch 60 days to support SMA50 calculation
     candles = helper.get_candles(symbol, interval='1d', limit=60)
     if candles and candles['close']:
         history = candles['close']

@@ -1,79 +1,8 @@
-import requests
-import requests
-try:
-    from src.config import Config
-except ImportError:
-    from config import Config
 import time
 import datetime
+import yfinance as yf
+import pandas as pd
 
-# --- CONFIGS ---
-FINNHUB_KEY = Config.FINNHUB_API_KEY
-FINNHUB_URL = "https://finnhub.io/api/v1"
-
-TWELVE_KEY = Config.TWELVE_DATA_API_KEY
-TWELVE_URL = "https://api.twelvedata.com"
-
-# --- HELPER FUNCTIONS ---
-
-def _get_finnhub(endpoint, params={}):
-    """ Get data from Finnhub (News Only) """
-    params['token'] = FINNHUB_KEY
-    try:
-        # Reduced timeout to 3s to prevent hanging on slow news/profile fetch
-        res = requests.get(f"{FINNHUB_URL}{endpoint}", params=params, timeout=3)
-        res.raise_for_status()
-        return res.json()
-    except Exception as e:
-        print(f"[FINNHUB ERROR] {endpoint}: {e}")
-        return None
-
-def _get_twelve(endpoint, params={}):
-    """ Get data from Twelve Data (Quote, Timeseries) """
-    if not TWELVE_KEY:
-        print("[TWELVE ERROR] No API Key provided")
-        return None
-        
-    params['apikey'] = TWELVE_KEY
-    try:
-        res = requests.get(f"{TWELVE_URL}{endpoint}", params=params, timeout=15) # Longer timeout for heavy data
-        res.raise_for_status()
-        data = res.json()
-        if 'code' in data and data['code'] != 200:
-             print(f"[TWELVE API ERROR] {data.get('message')}")
-             return None
-        return data
-    except Exception as e:
-        print(f"[TWELVE NETWORK ERROR] {endpoint}: {e}")
-        return None
-
-# --- PUBLIC FUNCTIONS (Hybrid Strategy: Twelve Data + Finnhub) ---
-
-def get_quote(symbol):
-    """ 
-    Get Realtime Price from Twelve Data (1 Credit)
-    """
-    # 1. Quote Endpoint
-    q_data = _get_twelve("/quote", {"symbol": symbol})
-    if q_data:
-        try:
-            return {
-                "c": float(q_data.get("close", 0)),
-                "d": float(q_data.get("change", 0)),
-                "dp": float(q_data.get("percent_change", 0)),
-                "h": float(q_data.get("high", 0)),
-                "l": float(q_data.get("low", 0)),
-                "o": float(q_data.get("open", 0)),
-                "pc": float(q_data.get("previous_close", 0)),
-                "name": q_data.get("name", symbol)
-            }
-        except Exception as e:
-            print(f"[TWELVE PARSE ERROR] {symbol}: {e}")
-            
-    return None
-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 try:
     from init_cache_db import GlobalStockInfo
 except ImportError:
@@ -83,29 +12,71 @@ try:
 except ImportError:
     from src.config import Config
 
-# DB Setup for Cache (Reuse from database.py to save connections)
+# DB Setup for Cache
 try:
     from database import SessionLocal
 except ImportError:
     from src.database import SessionLocal
 
+# --- PUBLIC FUNCTIONS (yfinance implementation) ---
+
+def get_quote(symbol):
+    """ Get Realtime Price from yfinance """
+    try:
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        if not info or ('currentPrice' not in info and 'regularMarketPrice' not in info):
+            # Try history fallback
+            history_df = ticker.history(period="2d")
+            if history_df.empty:
+                return None
+            price = float(history_df['Close'].iloc[-1])
+            prev_close = float(history_df['Close'].iloc[-2]) if len(history_df) > 1 else price
+            change = price - prev_close
+            pct_change = (change / prev_close) * 100 if prev_close else 0.0
+            
+            return {
+                "c": price,
+                "d": change,
+                "dp": pct_change,
+                "h": float(history_df['High'].max()),
+                "l": float(history_df['Low'].min()),
+                "o": float(history_df['Open'].iloc[-1]),
+                "pc": prev_close,
+                "name": symbol
+            }
+            
+        price = float(info.get('currentPrice') or info.get('regularMarketPrice') or 0.0)
+        prev_close = float(info.get('previousClose') or price)
+        change = price - prev_close
+        pct_change = (change / prev_close) * 100 if prev_close else 0.0
+        
+        return {
+            "c": price,
+            "d": change,
+            "dp": pct_change,
+            "h": float(info.get('dayHigh') or price),
+            "l": float(info.get('dayLow') or price),
+            "o": float(info.get('open') or price),
+            "pc": prev_close,
+            "name": info.get('shortName') or info.get('longName') or symbol
+        }
+    except Exception as e:
+        print(f"[YFINANCE GLOBAL QUOTE ERROR] {symbol}: {e}")
+        return None
+
 def get_company_profile(symbol):
-    """ 
-    Get Profile from Cache first, then Finnhub.
-    """
+    """ Get Profile from Cache first, then yfinance. """
     session = SessionLocal()
+    cached = None
     try:
         # 1. Check Cache
         cached = session.query(GlobalStockInfo).filter_by(symbol=symbol).first()
         if cached:
-            # Check freshness (e.g., 30 days) - Optional, implementation simplified
             now = datetime.datetime.utcnow()
             age = (now - cached.updated_at).days
             
-            # Logic: Return cache only if it seems valid (has P/E) OR if it's very recent (< 1 day)
-            # If P/E is 0, we might want to retry fetching unless we just fetched it today.
-            # Logic: Return cache only if it seems valid (has P/E)
-            # If P/E is 0, we FORCE re-fetch (Fall through to Finnhub)
+            # Return cache if fresh and valid
             if age < 1 and (str(cached.pe_ratio) != '0.0' and cached.pe_ratio != 0):
                 print(f"[CACHE HIT] Profile for {symbol} (Age: {age} days)")
                 return {
@@ -117,35 +88,19 @@ def get_company_profile(symbol):
             
             if age < 1:
                 print(f"[CACHE HIT-BUT-INVALID] Profile for {symbol} (Age: {age} days) has P/E=0. Refetching...")
-        
-        # 2. Fetch Finnhub
-        print(f"[CACHE MISS] Fetching Profile for {symbol} from Finnhub...")
-        profile = _get_finnhub('/stock/profile2', {'symbol': symbol})
-        
-        if profile:
-            # 3. Save to Cache
-            pe = profile.get('pe', 0) or 0
-            cap = profile.get('marketCapitalization', 0) or 0
-            yd = profile.get('dividendYield', 0) or 0
-            name = profile.get('name', symbol)
-            
-            # Additional attributes if available (Fallback to Metric endpoint)
-            if pe == 0 or yd == 0 or cap == 0: 
-                 try:
-                     print(f"[FINNHUB METRIC] Fetching extra metrics for {symbol}...")
-                     # Reduced timeout for metrics too
-                     metrics = _get_finnhub('/stock/metric', {'symbol': symbol, 'metric': 'all'})
-                     if metrics and 'metric' in metrics:
-                         m = metrics['metric']
-                         # Try multiple keys for P/E
-                         pe = pe or m.get('peBasicExclExtraTTM') or m.get('peTTM') or m.get('peNormalized') or m.get('peExclExtraTTM') or 0
-                         # Try multiple keys for Yield
-                         yd = yd or m.get('dividendYieldIndicatedAnnual') or m.get('dividendYield5Y') or m.get('currentDividendYieldTTM') or 0
-                         # Try multiple keys for Cap
-                         cap = cap or m.get('marketCapitalization') or 0
-                 except Exception as e:
-                     print(f"[FINNHUB METRIC ERROR] {e}")
 
+        # 2. Fetch yfinance
+        print(f"[CACHE MISS] Fetching Profile for {symbol} from yfinance...")
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        
+        if info:
+            pe = float(info.get('trailingPE') or info.get('forwardPE') or 0.0)
+            cap = float(info.get('marketCap') or 0.0) / 1000000.0
+            yd = float(info.get('dividendYield') or 0.0)
+            name = info.get('shortName') or info.get('longName') or symbol
+            
+            # 3. Save to Cache
             if cached:
                 cached.pe_ratio = pe
                 cached.market_cap = str(cap)
@@ -163,10 +118,15 @@ def get_company_profile(symbol):
                 session.add(new_entry)
             
             session.commit()
-            return profile
             
+            return {
+                "pe": pe,
+                "marketCapitalization": cap,
+                "dividendYield": yd,
+                "name": name
+            }
         else:
-            # Finnhub Failed/Empty -> Return Cache even if old? Or empty.
+            # Fallback to cache if yfinance fails
             if cached:
                 print(f"[CACHE FALLBACK] Using old data for {symbol}")
                 return {
@@ -179,46 +139,51 @@ def get_company_profile(symbol):
 
     except Exception as e:
         print(f"[CACHE ERROR] {e}")
+        # Fallback to cache on error
+        if cached:
+            return {
+                "pe": cached.pe_ratio,
+                "marketCapitalization": float(cached.market_cap) if cached.market_cap and cached.market_cap != 'N/A' else 0,
+                "dividendYield": cached.dividend_yield,
+                "name": cached.company_name
+            }
         return {}
     finally:
         session.close()
 
 def get_market_news(symbol):
-    """ Get News from Finnhub (0 Twelve Data Credits) """
-    end = datetime.date.today()
-    start = end - datetime.timedelta(days=3)
-    return _get_finnhub('/company-news', {
-        'symbol': symbol,
-        'from': start.strftime('%Y-%m-%d'),
-        'to': end.strftime('%Y-%m-%d')
-    }) or []
+    """ Get News from yfinance """
+    try:
+        ticker = yf.Ticker(symbol)
+        news = ticker.news
+        news_items = []
+        for item in news:
+            content = item.get('content', {})
+            headline = content.get('title') or item.get('title')
+            if headline:
+                news_items.append({
+                    "headline": headline,
+                    "summary": content.get('summary') or item.get('summary', ''),
+                    "url": content.get('canonicalUrl', {}).get('url') or item.get('link', '')
+                })
+        return news_items
+    except Exception as e:
+        print(f"[YFINANCE NEWS ERROR] {symbol}: {e}")
+        return []
 
 def get_candles_and_indicators(symbol):
-    """ 
-    Get Candles from Twelve Data (1 Credit)
-    Calculate indicators manually 
-    """
-    # 1. Get Time Series (Daily)
-    ts_data = _get_twelve("/time_series", {
-        "symbol": symbol,
-        "interval": "1day",
-        "outputsize": 60 
-    })
-    
-    if not ts_data or 'values' not in ts_data:
-        return None
-
-    # Parse Values (Twelve returns Newest First)
-    candles = ts_data['values']
-    candles.reverse() # Oldest -> Newest
-    
-    closes = [float(c['close']) for c in candles]
-    highs = [float(c['high']) for c in candles]
-    lows = [float(c['low']) for c in candles]
-
-    # Calculate Indicators
-    import pandas as pd
+    """ Get Candles from yfinance and calculate indicators manually """
     try:
+        ticker = yf.Ticker(symbol)
+        history_df = ticker.history(period="60d")
+        if history_df.empty:
+            return None
+
+        closes = history_df['Close'].tolist()
+        highs = history_df['High'].tolist()
+        lows = history_df['Low'].tolist()
+
+        # Calculate Indicators
         series = pd.Series(closes)
 
         # SMA 50
@@ -244,24 +209,13 @@ def get_candles_and_indicators(symbol):
                 "sma50": sma50,
                 "year_high": f"{max(highs):.2f}" if highs else "-",
                 "year_low": f"{min(lows):.2f}" if lows else "-",
-                "market_cap": "N/A" # Profile gets this
+                "market_cap": "N/A"
             }
         }
     except Exception as e:
         print(f"[INDICATOR ERROR] {symbol}: {e}")
-        return {"history": closes, "technicals": {}}
+        return None
 
 def get_general_market_news():
-    """ 
-    Get General Market News from Finnhub (Fallback when specific news is missing).
-    """
-    try:
-        # category='general' for US/Global macro
-        news = _get_finnhub('/news', {'category': 'general'})
-        if news and isinstance(news, list):
-            # Take top 5 to avoid token overload
-            return news[:5]
-        return []
-    except Exception as e:
-        print(f"[MARKET NEWS ERROR] {e}")
-        return []
+    """ Get General Market News from S&P 500 news on yfinance """
+    return get_market_news("^GSPC")

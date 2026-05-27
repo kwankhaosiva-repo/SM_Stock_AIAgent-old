@@ -79,32 +79,40 @@ def get_or_create_user(line_user_id):
         db.commit()
     return user, db
 
-from thai_stock_helper import get_thai_stock_data as get_thai_quote
-from global_stock_helper import get_quote as get_quote_finnhub
+import yfinance as yf
 
 def check_stock_exists(symbol):
     """
-    Check stock existence: Try Finnhub First -> Fallback to Settrade (Thai)
+    Check stock existence using yfinance:
+    Try the symbol as entered first -> Fallback to suffixing with .BK if not found
     """
+    symbol = symbol.upper().strip()
     try:
-        quote = get_quote_finnhub(symbol)
-        if quote and quote['c'] > 0:
-             return symbol, quote['c']
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+        if info and ('currentPrice' in info or 'regularMarketPrice' in info):
+            price = float(info.get('currentPrice') or info.get('regularMarketPrice') or 0.0)
+            if price > 0:
+                return symbol, price
     except Exception as e:
-        print(f"[Check Stock Finnhub Error] {e}")
+        print(f"[Check Stock yfinance Error] {symbol}: {e}")
 
-    print(f"[Check Stock] Falling back to Settrade for {symbol}")
-    try:
-        thai_data = get_thai_quote(symbol)
-        if thai_data and thai_data.get('price', 0) > 0:
-            if not symbol.upper().endswith(".BK"):
-                 return symbol.upper() + ".BK", thai_data['price']
-            return symbol.upper(), thai_data['price']
-            
-    except Exception as e:
-        print(f"[Check Stock Settrade Error] {e}")
-        
+    # Fallback to Thai stock check if symbol doesn't already end with .BK
+    if not symbol.endswith(".BK"):
+        thai_symbol = symbol + ".BK"
+        print(f"[Check Stock] Trying Thai fallback for {thai_symbol}")
+        try:
+            ticker = yf.Ticker(thai_symbol)
+            info = ticker.info
+            if info and ('currentPrice' in info or 'regularMarketPrice' in info):
+                price = float(info.get('currentPrice') or info.get('regularMarketPrice') or 0.0)
+                if price > 0:
+                    return thai_symbol, price
+        except Exception as e:
+            print(f"[Check Stock Thai Fallback Error] {thai_symbol}: {e}")
+
     return None, None
+
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):

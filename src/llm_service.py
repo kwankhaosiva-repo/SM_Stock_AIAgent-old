@@ -10,6 +10,7 @@ except ImportError:
 class LLMService:
     def __init__(self):
         self.client = None
+        self.model = None
         self.model_name = Config.GEMINI_MODEL_NAME
         
         # Initialize Client (Old SDK Style)
