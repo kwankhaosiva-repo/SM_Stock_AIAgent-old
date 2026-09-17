@@ -1,84 +1,51 @@
+"""Compatibility facade used by LINE handlers and scheduled jobs."""
+
 import time
-from analyzer import AnalysisEngine
+
 from line_templates import get_analysis_flex
+from workflows import ReportWorkflow
 
-# Shared Analyzer Instance (Singleton-ish)
-_analyzer = AnalysisEngine()
 
-def process_stock_list(stocks, callback_func=None):
-    """
-    Centralized logic to process a list of stocks.
-    Handles:
-    - Iteration
-    - Analysis
-    - Rate Limiting (Sleep)
-    - Formatting (Flex Bubble)
-    
-    Args:
-        stocks: List of stock objects (must have .symbol attribute) or strings.
-        callback_func: Optional function to call with the generated Flex Bubble immediately.
-                       Useful for app.py needing immediate feedback.
-                       
-    Returns:
-        List of generated Flex Bubbles (for batch sending like in worker.py).
-    """
-    flex_bubbles = []
-    total_items = len(stocks)
-    
+def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=None):
+    """Generate reports through the auditable workflow while retaining old callers."""
+    bubbles = []
+    workflow = ReportWorkflow()
+    settings = user_settings or {}
+
     for index, item in enumerate(stocks):
-        # Handle both object (Watchlist) and string input
         symbol = item.symbol if hasattr(item, 'symbol') else str(item)
-        
-        # Strategy/Goal extraction (if available on item)
-        strategy = getattr(item, 'strategy', 'Value')
-        goal = getattr(item, 'goal', 'Medium')
-        risk = getattr(item, 'risk', 'Medium')
-
-        print(f"[SERVICE] Processing {symbol} ({index+1}/{total_items})...")
-        
+        profile = {
+            'core_strategy': getattr(item, 'strategy', None) or settings.get('core_strategy', 'AI-Auto'),
+            'investment_goal': getattr(item, 'goal', None) or settings.get('investment_goal', 'Medium'),
+            'risk_appetite': getattr(item, 'risk', None) or settings.get('risk_appetite', 'Medium'),
+            'report_format': getattr(item, 'report_format', None) or settings.get('report_format', 'Short'),
+        }
         try:
-            # 1. Analyze
-            analysis_result = _analyzer.analyze(symbol, strategy=strategy, goal=goal, risk=risk)
-            
-            if analysis_result:
-                # 2. Data Prep for Template
-                details = analysis_result.get('metrics', {}).copy()
-                details['history'] = analysis_result.get('history', [])
-                details['news'] = analysis_result.get('news', [])
-                details['technicals'] = analysis_result.get('technicals', {})
-                details['news_summary'] = analysis_result.get('news_summary', '-')
-
-                # 3. Generate Flex
-                flex = get_analysis_flex(
-                    symbol=analysis_result['symbol'],
-                    signal=analysis_result['signal'],
-                    recommendation=analysis_result['reason'],
-                    details=details
-                )
-                
-                if flex and 'contents' in flex:
-                    bubble = flex['contents']
-                    flex_bubbles.append(bubble)
-                    
-                    # Immediate Callback (used by app.py)
-                    if callback_func:
-                        callback_func(bubble)
-
-        except Exception as e:
-            print(f"[SERVICE ERROR] Failed to process {symbol}: {e}")
-            # Generate Error Flex Bubble so user knows something went wrong
-            try:
-                err_flex = get_analysis_flex(symbol, "ERROR", f"เกิดข้อผิดพลาด: {str(e)[:50]}", {})
-                if err_flex and 'contents' in err_flex:
-                    bubble = err_flex['contents']
-                    flex_bubbles.append(bubble)
-                    
-                    if callback_func:
-                        callback_func(bubble)
-            except: pass
-
-        # 4. Rate Limit Logic (The crucial shared part)
-        if index < total_items - 1:
-            time.sleep(1) # Sleep 1s to be polite to Yahoo Finance
-                
-    return flex_bubbles
+            report = workflow.run(symbol, profile, user_id=user_id)
+            details = report['metrics'].copy()
+            details.update({
+                'history': report['history'],
+                'news': report['news'],
+                'technicals': report['technicals'],
+                'news_summary': report['news_summary'],
+                'updated_at': report['updated_at'],
+                'confidence': report['advice']['confidence'],
+                'risks': report['advice']['risks'],
+            })
+            flex = get_analysis_flex(report['symbol'], report['signal'], report['reason'], details)
+            if flex and 'contents' in flex:
+                bubble = flex['contents']
+                bubbles.append(bubble)
+                if callback_func:
+                    callback_func(bubble, report)
+        except Exception as exc:
+            print(f'[SERVICE] Failed to process {symbol}: {exc}')
+            flex = get_analysis_flex(symbol, 'ERROR', 'ไม่สามารถสร้างรายงานได้ในขณะนี้', {})
+            if flex and 'contents' in flex:
+                bubble = flex['contents']
+                bubbles.append(bubble)
+                if callback_func:
+                    callback_func(bubble, None)
+        if index < len(stocks) - 1:
+            time.sleep(1)
+    return bubbles

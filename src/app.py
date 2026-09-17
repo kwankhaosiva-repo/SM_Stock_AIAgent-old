@@ -421,53 +421,25 @@ def handle_postback(event):
                 except Exception:
                     pass 
 
-                # 2. Fire-and-Forget Background Task
-                import threading
-                
-                # Snapshot Data (to avoid DB DetachedInstanceError in thread)
+                # 2. Queue a durable report job. The worker owns all slow I/O and
+                # sends the final push message after the webhook has returned.
                 user_settings_snapshot = {
                     'core_strategy': user.core_strategy,
                     'investment_goal': user.investment_goal,
-                    'risk_appetite': user.risk_appetite
+                    'risk_appetite': user.risk_appetite,
+                    'report_format': user.report_format,
                 }
-                
                 safe_items = []
                 for item in items:
                     safe_items.append({
-                        'symbol': item.symbol, 
+                        'symbol': item.symbol,
                         'strategy': item.strategy,
                         'goal': item.goal,
-                        'risk': item.risk
+                        'risk': item.risk,
+                        'report_format': item.report_format,
                     })
-
-                def run_analysis_safe(u_id, s_items, u_settings):
-                    from services import process_stock_list
-                    # Helper class for service compatibility
-                    class ItemObj: pass
-                    
-                    final_items = []
-                    for d in s_items:
-                        obj = ItemObj()
-                        obj.symbol = d['symbol']
-                        obj.strategy = d['strategy'] or u_settings.get('core_strategy', 'Value')
-                        obj.goal = d['goal'] or u_settings.get('investment_goal', 'Medium')
-                        obj.risk = d['risk'] or u_settings.get('risk_appetite', 'Medium')
-                        final_items.append(obj)
-                    
-                    def on_result(bubble):
-                        try:
-                            # Push immediately
-                            line_bot_api.push_message(u_id, FlexSendMessage(alt_text="Analysis Result", contents=bubble))
-                        except Exception as e:
-                            print(f"[PUSH ERROR] {e}")
-
-                    # Call Service
-                    process_stock_list(final_items, callback_func=on_result)
-
-                # Start Thread
-                bg_thread = threading.Thread(target=run_analysis_safe, args=(user.id, safe_items, user_settings_snapshot))
-                bg_thread.start()
-                # Function ends here, returning 200 OK immediately to LINE
+                from tasks import enqueue_report
+                enqueue_report(user.id, user_id, safe_items, user_settings_snapshot)
 
         elif action == 'our_products':
              line_bot_api.reply_message(event.reply_token, TextSendMessage(text="รอติดตามผลงานเร็วๆนี้"))

@@ -51,6 +51,13 @@ class Config:
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
     GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-flash-latest')
 
+    # Report workflow and worker settings. Redis is optional for local development,
+    # but required in production so report jobs survive web-server restarts.
+    REDIS_URL = os.getenv('REDIS_URL', '')
+    QUEUE_NAME = os.getenv('QUEUE_NAME', 'reports')
+    REPORT_QUEUE_MODE = os.getenv('REPORT_QUEUE_MODE', 'auto').lower()
+    MARKET_SNAPSHOT_TTL_MINUTES = int(os.getenv('MARKET_SNAPSHOT_TTL_MINUTES', '15'))
+
     # App Settings
     SCHEDULER_TIMEZONE = 'Asia/Bangkok'
     DEBUG = False

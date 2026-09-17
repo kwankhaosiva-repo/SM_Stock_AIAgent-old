@@ -1,6 +1,7 @@
 import json
 import os
 import urllib.parse
+import copy
 from config import Config
 
 # Robust Path Detection for line_ux
@@ -175,7 +176,10 @@ def get_analysis_flex(symbol, signal, recommendation, details):
 
     template = load_template("analysis.json")
     
-    color_map = {"BUY": "#1DB446", "SELL": "#ff4444", "HOLD": "#ffbb33", "WAIT": "#33b5e5", "ERROR": "#000000"}
+    color_map = {
+        "POSITIVE": "#16803c", "NEUTRAL": "#8a6100", "CAUTIOUS": "#b42318",
+        "BUY": "#1DB446", "SELL": "#ff4444", "HOLD": "#ffbb33", "WAIT": "#33b5e5", "ERROR": "#000000",
+    }
     signal_color = color_map.get(str(signal).upper(), "#000000")
     
     def safe_get(key, fmt="{:.2f}"):
@@ -251,6 +255,12 @@ def get_analysis_flex(symbol, signal, recommendation, details):
     
     if len(news_text) > 140: news_text = news_text[:137] + "..."
 
+    risks = details.get('risks') or []
+    risk_text = " | ".join(str(item) for item in risks[:2]) if risks else "ควรพิจารณาความเสี่ยงและข้อมูลล่าสุดก่อนตัดสินใจ"
+    if len(risk_text) > 160: risk_text = risk_text[:157] + "..."
+    updated_at = str(details.get('updated_at') or "ข้อมูลล่าสุด")[:19].replace('T', ' ')
+    confidence = str(details.get('confidence') or "Medium")
+
     # Footer Link Logic
     is_thai = ".BK" in str(symbol).upper()
     link_uri = f"https://www.settrade.com/th/equities/quote/{str(symbol).replace('.BK','')}/overview" if is_thai else f"https://finance.yahoo.com/quote/{symbol}"
@@ -270,11 +280,16 @@ def get_analysis_flex(symbol, signal, recommendation, details):
         "VAL_YH": str(yh),
         "VAL_YL": str(yl),
         "NEWS_TEXT": str(news_text), 
+        "RISK_TEXT": risk_text,
+        "UPDATED_AT": updated_at,
+        "CONFIDENCE": confidence,
         "LINK_URI": link_uri
     }
 
     if template:
-        payload = template
+        payload = copy.deepcopy(template)
+    else:
+        return None
 
     # Remove Hero (Model Graph Section in Body instead)
     if "hero" in payload: del payload["hero"]

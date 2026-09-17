@@ -8,7 +8,7 @@
     "contents": [
       {
         "type": "text",
-        "text": "ANALYSIS REPORT",
+        "text": "STOCK RESEARCH BRIEF",
         "weight": "bold",
         "size": "xs",
         "color": "#1DB446",
@@ -57,6 +57,14 @@
         "wrap": true,
         "weight": "bold",
         "align": "start"
+      },
+      {
+        "type": "text",
+        "text": "UPDATED_AT | Confidence: CONFIDENCE",
+        "size": "xxs",
+        "color": "#777777",
+        "margin": "sm",
+        "wrap": true
       },
       {
         "type": "separator",
@@ -146,6 +154,15 @@
            "wrap": true,
            "maxLines": 6,
            "margin": "md"
+      },
+      {
+           "type": "text",
+           "text": "Risk: RISK_TEXT",
+           "size": "xxs",
+           "color": "#b42318",
+           "wrap": true,
+           "maxLines": 3,
+           "margin": "md"
       }
     ]
   },
@@ -163,6 +180,16 @@
           "type": "uri",
           "label": "See Realtime Data",
           "uri": "LINK_URI"
+        }
+      },
+      {
+        "type": "button",
+        "style": "link",
+        "height": "sm",
+        "action": {
+          "type": "postback",
+          "label": "Refresh research",
+          "data": "action=get_report"
         }
       }
     ]
