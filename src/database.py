@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, ForeignKey, Boolean, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, scoped_session
-from datetime import datetime
+from datetime import datetime, timezone
 from config import Config
 
 # Setup SQLAlchemy
@@ -63,6 +63,10 @@ class Schedule(Base):
     user = relationship("User", back_populates="schedule")
 
 
+def _utcnow_naive():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 class MarketSnapshot(Base):
     """Reusable, source-labelled market data collected for one symbol."""
     __tablename__ = 'market_snapshots'
@@ -71,7 +75,7 @@ class MarketSnapshot(Base):
     symbol = Column(String, index=True, nullable=False)
     provider = Column(String, nullable=False, default='legacy')
     data_json = Column(Text, nullable=False)
-    collected_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    collected_at = Column(DateTime, default=_utcnow_naive, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False, index=True)
 
 
@@ -97,7 +101,7 @@ class AnalysisRun(Base):
     status = Column(String, nullable=False, default='queued', index=True)
     result_json = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
     completed_at = Column(DateTime, nullable=True)
 
 
@@ -109,7 +113,7 @@ class AgentOutput(Base):
     agent_name = Column(String, nullable=False)
     status = Column(String, nullable=False, default='completed')
     output_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
 
 
 class ReportDelivery(Base):
@@ -122,7 +126,7 @@ class ReportDelivery(Base):
     idempotency_key = Column(String, nullable=False)
     status = Column(String, nullable=False, default='queued', index=True)
     error_message = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow_naive, nullable=False)
     sent_at = Column(DateTime, nullable=True)
 
 def init_db():

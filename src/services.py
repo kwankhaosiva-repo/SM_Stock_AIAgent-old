@@ -3,6 +3,7 @@
 import time
 
 from line_templates import get_analysis_flex
+from reporting.line_report_renderer import LineReportRenderer
 from workflows import ReportWorkflow
 
 
@@ -22,25 +23,14 @@ def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=N
         }
         try:
             report = workflow.run(symbol, profile, user_id=user_id)
-            details = report['metrics'].copy()
-            details.update({
-                'history': report['history'],
-                'news': report['news'],
-                'technicals': report['technicals'],
-                'news_summary': report['news_summary'],
-                'updated_at': report['updated_at'],
-                'confidence': report['advice']['confidence'],
-                'risks': report['advice']['risks'],
-            })
-            flex = get_analysis_flex(report['symbol'], report['signal'], report['reason'], details)
-            if flex and 'contents' in flex:
-                bubble = flex['contents']
-                bubbles.append(bubble)
-                if callback_func:
-                    callback_func(bubble, report)
+            # Render using the rich LineReportRenderer
+            bubble = LineReportRenderer.render_stock_card(report)
+            bubbles.append(bubble)
+            if callback_func:
+                callback_func(bubble, report)
         except Exception as exc:
             print(f'[SERVICE] Failed to process {symbol}: {exc}')
-            flex = get_analysis_flex(symbol, 'ERROR', 'ไม่สามารถสร้างรายงานได้ในขณะนี้', {})
+            flex = get_analysis_flex(symbol, 'CAUTIOUS', 'ไม่สามารถสร้างรายงานได้ในขณะนี้', {})
             if flex and 'contents' in flex:
                 bubble = flex['contents']
                 bubbles.append(bubble)

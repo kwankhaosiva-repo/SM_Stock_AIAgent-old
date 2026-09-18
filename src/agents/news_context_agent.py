@@ -10,13 +10,26 @@ class NewsContextAgent(BaseAgent):
     soul_file = 'news_context.md'
 
     def run(self, snapshot: MarketSnapshotData) -> AgentFinding:
-        titles = [item.title for item in snapshot.sources[:3]]
+        sources = snapshot.sources[:5]
+        evidence = []
+        for s in sources:
+            label = f"{s.title}"
+            if s.url:
+                label += f" ({s.url})"
+            evidence.append(label)
+
         fallback = AgentFinding(
             agent_name=self.name,
-            summary='พบข่าวที่เกี่ยวข้อง' if titles else 'ไม่มีข่าวที่ตรวจสอบได้ในรอบนี้',
+            summary='พบข่าวที่เกี่ยวข้องกับบริษัทและสภาวะตลาด' if evidence else 'ไม่มีข่าวสารที่ตรวจสอบได้ในรอบนี้',
             outlook='Neutral',
-            evidence=titles,
-            risks=['ข่าวอาจไม่ครอบคลุมทุกแหล่งข้อมูล'] if not titles else [],
-            confidence='Low' if not titles else 'Medium',
+            evidence=evidence[:3],
+            risks=['ข่าวสารอาจยังไม่ครอบคลุมเหตุการณ์ล่าสุดทั้งหมด'] if evidence else ['ไม่มีแหล่งข่าวสนับสนุนในรอบวิเคราะห์นี้'],
+            confidence='Medium' if evidence else 'Low',
         )
-        return self.try_ai({'snapshot': snapshot.dict()}, AgentFinding, fallback)
+
+        payload = {
+            'symbol': snapshot.symbol,
+            'sources': [s.to_dict() for s in sources],
+            'collected_at': str(snapshot.collected_at),
+        }
+        return self.try_ai(payload, AgentFinding, fallback)

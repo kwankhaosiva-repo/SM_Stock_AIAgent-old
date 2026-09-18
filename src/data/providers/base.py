@@ -1,14 +1,28 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Any, Dict, List
+
+from models.analysis_models import SourceItem
 
 
 class MarketDataProvider(ABC):
-    """Provider boundary: replace development data without touching agent code."""
+    """Abstract base provider for equity price, fundamental, and historical data."""
 
-    name = 'unknown'
+    name: str = 'base_market_provider'
 
     @abstractmethod
     def fetch(self, symbol: str) -> Dict[str, Any]:
+        """Return dict with price, pe_ratio, div_yield, history (prices list), technicals."""
+        raise NotImplementedError
+
+
+class NewsDataProvider(ABC):
+    """Abstract base provider for news and macro context."""
+
+    name: str = 'base_news_provider'
+
+    @abstractmethod
+    def fetch_news(self, symbol: str) -> List[SourceItem]:
+        """Return structured list of SourceItems for company and macro news."""
         raise NotImplementedError

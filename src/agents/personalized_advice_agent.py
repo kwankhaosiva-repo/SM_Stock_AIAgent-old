@@ -11,20 +11,45 @@ class PersonalizedAdviceAgent(BaseAgent):
     name = 'personalized_advice'
     soul_file = 'personalized_advice.md'
 
-    def run(self, snapshot: MarketSnapshotData, news: AgentFinding, analysis: AgentFinding, profile: Dict[str, str]) -> AdviceOutput:
-        reasons = (analysis.evidence + news.evidence)[:3]
+    def run(
+        self,
+        snapshot: MarketSnapshotData,
+        news: AgentFinding,
+        analysis: AgentFinding,
+        profile: Dict[str, str],
+    ) -> AdviceOutput:
+        # Build deterministic fallback
+        combined_reasons = []
+        if analysis.evidence:
+            combined_reasons.extend(analysis.evidence[:2])
+        if news.evidence:
+            combined_reasons.append(news.evidence[0])
+        if not combined_reasons:
+            combined_reasons = [f"ราคาอ้างอิง: {snapshot.price:,.2f}"]
+
+        combined_risks = list(dict.fromkeys(analysis.risks + news.risks))
+        if not combined_risks:
+            combined_risks = ['ควรติดตามภาวะตลาดและข่าวสารบริษัทอย่างสม่ำเสมอ']
+
+        outlook = analysis.outlook if analysis.outlook in ('Positive', 'Neutral', 'Cautious') else 'Neutral'
+
         fallback = AdviceOutput(
-            outlook=analysis.outlook,
-            summary=f'มุมมอง {analysis.outlook}: {analysis.summary}',
-            reasons=reasons,
-            risks=list(dict.fromkeys(analysis.risks + news.risks))[:3],
-            next_watch_items=['ติดตามผลประกอบการหรือข่าวสารที่มีผลต่อธุรกิจ', 'ตรวจสอบราคากับระดับความเสี่ยงที่ตั้งไว้'],
-            confidence=analysis.confidence,
+            outlook=outlook,
+            summary=f"มุมมอง {outlook}: {analysis.summary}",
+            reasons=combined_reasons[:3],
+            risks=combined_risks[:3],
+            next_watch_items=[
+                'ติดตามรายงานผลประกอบการและแถลงการณ์ของผู้บริหาร',
+                'ตรวจสอบระดับราคาเทียบกับแนวรับและแนวต้านสำคัญ',
+            ],
+            confidence=analysis.confidence if analysis.confidence != 'Low' else news.confidence,
         )
+
         payload = {
-            'snapshot': snapshot.dict(),
-            'news_finding': news.dict(),
-            'analysis_finding': analysis.dict(),
+            'symbol': snapshot.symbol,
+            'snapshot': snapshot.to_dict(),
+            'news_finding': news.to_dict(),
+            'analysis_finding': analysis.to_dict(),
             'user_profile': profile,
         }
         return self.try_ai(payload, AdviceOutput, fallback)
