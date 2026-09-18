@@ -1,37 +1,55 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments & packages
+.venv/
+venv/
+env/
 .Python
-env
-venv
-.venv
 pip-log.txt
 pip-delete-this-directory.txt
-.tox
+
+# Version control & IDE
+.git/
+.gitignore
+.github/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Testing, logs & cache
+tests/
+scratch/
+.pytest_cache/
 .coverage
 .coverage.*
-.cache
 nosetests.xml
 coverage.xml
-*.cover
 *.log
-.git
-.gitignore
-.DS_Store
-.vscode
-Dockerfile
-README.md
-deploy_guide.md
+news_log.txt
 
-# Images and Assets
+# Local databases & secrets
+app.db
+*.sqlite
+*.sqlite3
+*.db
+.env
+.flaskenv
+
+# Temporary documentation & exports
+repomix-output.md
+.repomixignore
+deploy_guide.md
+GCP_powershell.txt
+gcp-deploy.txt
 Images/
 images/
+line_ux/rich_menu.lbd
 *.png
 *.jpg
 *.jpeg
-*.gif
 *.svg
-.env
-*.db
-GCP_powershell.txt

@@ -1,0 +1,159 @@
+================================================================================
+GCP ZERO-COST PRODUCTION DEPLOYMENT GUIDE: agent-stocks
+================================================================================
+Target Project ID : agent-stocks
+Region Recommendation: asia-southeast1 (Singapore - Lowest latency for Thailand)
+                      or us-central1 (Highest free-tier allowance)
+
+This deployment is architected for NEAR-ZERO / $0.00 MONTHLY COST:
+1. Cloud Run Free Tier: 2M requests, 360,000 GB-secs memory, 180,000 vCPU-secs/month.
+   - min-instances=0: Scales down to 0 instances when idle (0 cost).
+   - cpu-throttling: CPU is only active during requests.
+   - max-instances=2: Prevents accidental billing spikes.
+2. Firestore Free Tier: 1GB storage, 50,000 reads/day, 20,000 writes/day (No idle charge).
+   (Unlike Cloud SQL PostgreSQL which costs ~$15-30/month even when completely idle).
+3. Cloud Scheduler Free Tier: 3 free jobs per billing account (We use 1 job).
+4. Secret Manager Free Tier: 6 active secret versions free.
+
+--------------------------------------------------------------------------------
+STEP 1: LOGIN & SET GCP PROJECT
+--------------------------------------------------------------------------------
+Open your terminal / PowerShell and run:
+
+gcloud auth login
+gcloud config set project agent-stocks
+
+# Verify your active project:
+gcloud config get-value project
+
+--------------------------------------------------------------------------------
+STEP 2: ENABLE REQUIRED GCP APIS
+--------------------------------------------------------------------------------
+Enable Cloud Run, Cloud Build, Artifact Registry, Firestore, and Scheduler:
+
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  firestore.googleapis.com \
+  cloudscheduler.googleapis.com \
+  secretmanager.googleapis.com
+
+--------------------------------------------------------------------------------
+STEP 3: INITIALIZE FIRESTORE (NATIVE MODE - PERMANENT FREE TIER)
+--------------------------------------------------------------------------------
+Create the default Firestore database in Native mode:
+
+# Create Firestore database in asia-southeast1 (Singapore)
+gcloud firestore databases create \
+  --location=asia-southeast1 \
+  --type=firestore-native
+
+# (Alternatively, in us-central1):
+# gcloud firestore databases create --location=us-central1 --type=firestore-native
+
+# Note: Cloud Run automatically authenticates to Firestore using its default
+# service account. No database passwords or connection URLs are needed!
+
+--------------------------------------------------------------------------------
+STEP 4: SETUP SECRETS (OR PASSWORDS)
+--------------------------------------------------------------------------------
+Store your sensitive LINE and Gemini keys securely in Secret Manager (Free Tier):
+
+# 1. LINE Channel Secret
+printf "YOUR_LINE_CHANNEL_SECRET" | gcloud secrets create LINE_CHANNEL_SECRET --data-file=-
+
+# 2. LINE Channel Access Token
+printf "YOUR_LINE_CHANNEL_ACCESS_TOKEN" | gcloud secrets create LINE_CHANNEL_ACCESS_TOKEN --data-file=-
+
+# 3. Google Gemini API Key
+printf "YOUR_GEMINI_API_KEY" | gcloud secrets create GEMINI_API_KEY --data-file=-
+
+# Grant Cloud Run default compute service account permission to read secrets:
+PROJECT_NUMBER=$(gcloud projects describe agent-stocks --format="value(projectNumber)")
+gcloud secrets add-iam-policy-binding LINE_CHANNEL_SECRET \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding LINE_CHANNEL_ACCESS_TOKEN \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+--------------------------------------------------------------------------------
+STEP 5: BUILD & DEPLOY TO CLOUD RUN (ZERO-COST FLAGS)
+--------------------------------------------------------------------------------
+Navigate to your project folder:
+cd "/Users/kwankhaos/Desktop/Personal Projects/SM_Stock_AIAgent"
+
+Deploy directly with source build and cost-optimized flags:
+
+gcloud run deploy agent-stocks-service \
+  --source . \
+  --platform managed \
+  --region asia-southeast1 \
+  --allow-unauthenticated \
+  --cpu 1 \
+  --memory 512Mi \
+  --min-instances 0 \
+  --max-instances 2 \
+  --concurrency 80 \
+  --cpu-throttling \
+  --timeout 300 \
+  --set-env-vars="GEMINI_MODEL_NAME=gemini-flash-latest,SCHEDULER_TIMEZONE=Asia/Bangkok,MARKET_SNAPSHOT_TTL_MINUTES=15" \
+  --set-secrets="LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest"
+
+# Explanation of Zero-Cost Flags:
+# --min-instances 0   : Zero containers run when idle = $0 charge.
+# --cpu-throttling    : Cloud Run only bills CPU while processing active HTTP requests.
+# --max-instances 2   : Caps maximum scaling to prevent runaway billing spikes.
+# --memory 512Mi      : Stays well within the monthly 360,000 GB-second free tier.
+# --concurrency 80    : 1 container can handle multiple LINE webhook calls concurrently.
+
+# Once deployed, copy your Service URL (e.g., https://agent-stocks-service-xxxx-as.a.run.app)
+
+--------------------------------------------------------------------------------
+STEP 6: CONFIGURE CLOUD SCHEDULER (HOURLY CRON - FREE TIER)
+--------------------------------------------------------------------------------
+GCP provides 3 free Cloud Scheduler jobs per month.
+Create 1 job to ping the /cron/trigger endpoint at the top of every hour (00 mins):
+
+# Replace <SERVICE_URL> with your actual Cloud Run URL from Step 5:
+SERVICE_URL=$(gcloud run services describe agent-stocks-service --region asia-southeast1 --format="value(status.url)")
+
+gcloud scheduler jobs create http agent-stocks-hourly-cron \
+  --location=asia-southeast1 \
+  --schedule="0 * * * *" \
+  --time-zone="Asia/Bangkok" \
+  --uri="${SERVICE_URL}/cron/trigger" \
+  --http-method=POST \
+  --attempt-deadline=300s
+
+--------------------------------------------------------------------------------
+STEP 7: CONFIGURE LINE DEVELOPERS CONSOLE WEBHOOK
+--------------------------------------------------------------------------------
+1. Go to https://developers.line.biz/console/
+2. Select your Provider and Channel (Messaging API).
+3. Under "Messaging API" tab:
+   - Webhook URL: Paste your Cloud Run URL with /callback:
+     https://<YOUR-CLOUD-RUN-URL>/callback
+   - Click "Verify" (should return Success 200).
+   - Turn ON "Use webhook".
+   - Turn OFF "Auto-reply messages" under LINE Official Account Manager.
+
+--------------------------------------------------------------------------------
+STEP 8: USEFUL MONITORING & LOG COMMANDS
+--------------------------------------------------------------------------------
+# Stream live logs from Cloud Run:
+gcloud run services logs tail agent-stocks-service --region asia-southeast1
+
+# View Cloud Run service status and URL:
+gcloud run services describe agent-stocks-service --region asia-southeast1
+
+# Test Cloud Scheduler manually:
+gcloud scheduler jobs run agent-stocks-hourly-cron --location=asia-southeast1
+
+# Delete service if needed:
+# gcloud run services delete agent-stocks-service --region asia-southeast1
+================================================================================

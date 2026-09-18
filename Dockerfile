@@ -1,29 +1,29 @@
-# Use official Python runtime as a parent image
-FROM python:3.10-slim
+# Multi-stage or slim Python image optimized for Google Cloud Run
+FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
+# Set environment variables for performance and unbuffered container logs
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src:/app \
+    PORT=8080
 
-# Set work directory
 WORKDIR /app
 
-# Install system dependencies (needed for some pandas/numpy operations)
+# Install minimal build tools for C-extensions (if needed)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
+# Install dependencies first for Docker caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy source code and line UX assets
 COPY . .
 
-# Expose port (Cloud Run defaults to 8080)
+# Cloud Run injects $PORT (default 8080)
 EXPOSE 8080
 
-# Define execution command (Start Flask with Gunicorn)
-# Use 1 worker + threads to handle concurrent requests (for Fire-and-Forget)
-CMD exec gunicorn --bind :8080 --workers 1 --threads 8 --timeout 0 src.app:app
+# Run with Gunicorn: 1 worker process with 8 threads (best for async I/O & low memory usage)
+CMD exec gunicorn --bind :${PORT:-8080} --workers 1 --threads 8 --timeout 300 src.app:app
