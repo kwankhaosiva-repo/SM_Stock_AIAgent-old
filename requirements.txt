@@ -16,3 +16,4 @@ redis>=5.0.0
 rq>=1.16.0
 alembic>=1.13.0
 google-cloud-firestore>=2.14.0
+langgraph>=1.0.0

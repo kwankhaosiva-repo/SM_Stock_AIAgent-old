@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, List, Optional
 
 from models.analysis_models import AdviceOutput, AgentFinding, MarketSnapshotData
 
@@ -17,6 +17,7 @@ class PersonalizedAdviceAgent(BaseAgent):
         news: AgentFinding,
         analysis: AgentFinding,
         profile: Dict[str, str],
+        review_notes: Optional[List[str]] = None,
     ) -> AdviceOutput:
         # Build deterministic fallback
         combined_reasons = []
@@ -45,6 +46,12 @@ class PersonalizedAdviceAgent(BaseAgent):
             confidence=analysis.confidence if analysis.confidence != 'Low' else news.confidence,
         )
 
+        # If the reviewer asked for revisions, fold the notes into the risks and
+        # re-synthesize with them surfaced so the LLM corrects the advice.
+        revision_context = list(review_notes or [])
+        if revision_context:
+            fallback.risks = list(dict.fromkeys(fallback.risks + revision_context))[:3]
+
         payload = {
             'symbol': snapshot.symbol,
             'snapshot': snapshot.to_dict(),
@@ -52,4 +59,9 @@ class PersonalizedAdviceAgent(BaseAgent):
             'analysis_finding': analysis.to_dict(),
             'user_profile': profile,
         }
+        if revision_context:
+            payload['reviewer_revision_notes'] = revision_context
+            payload['revision_instruction'] = (
+                'ผู้ตรวจสอบขอให้ปรับปรุงคำแนะนำก่อนหน้า โปรดแก้ไขข้อความให้ตรงกับข้อติดใน reviewer_revision_notes และส่งคืน JSON ใหม่'
+            )
         return self.try_ai(payload, AdviceOutput, fallback)
