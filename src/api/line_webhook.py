@@ -312,15 +312,23 @@ def handle_postback(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reasons_text.strip()))
 
         elif action == 'news' and symbol:
+            from analysis.news_analysis import analyze_news
             from data.market_snapshot_service import MarketSnapshotService
             snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-            news_text = f"📰 ข่าวที่เกี่ยวข้องสำหรับ {symbol}:\n"
-            if snapshot.sources:
-                for s in snapshot.sources[:3]:
-                    news_text += f"• {s.title}\n{s.url}\n\n"
-            else:
-                news_text += "ไม่มีข่าวสารล่าสุดในระบบ"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=news_text.strip()))
+            brief = analyze_news(snapshot, profile={
+                'core_strategy': user.core_strategy,
+                'investment_goal': user.investment_goal,
+                'risk_appetite': user.risk_appetite,
+            })
+            impact_icon = {'Positive': '🟢', 'Mixed': '🟡', 'Negative': '🔴'}.get(brief['impact'], '🟡')
+            news_text = (
+                f"📰 Market Brief: {snapshot.symbol} {impact_icon} {brief['impact']}\n\n"
+                f"{brief['summary']}\n\n"
+                + "\n".join(f"• {n}" for n in brief['news'][:5])
+                + "\n\n💡 คำแนะนำ:\n" + "\n".join(f"- {a}" for a in brief['advice'])
+                + f"\n\n_{brief['disclaimer']}_"
+            )
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=news_text[:4900]))
 
         elif action == 'financials' and symbol:
             from data.market_snapshot_service import MarketSnapshotService

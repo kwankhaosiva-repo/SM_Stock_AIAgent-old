@@ -81,6 +81,15 @@ gcloud secrets add-iam-policy-binding GEMINI_API_KEY \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
 
+# Extra secrets for the free-tier LLM failover chain (create only the ones you use;
+# the service skips any provider whose key is absent):
+for S in GROQ_API_KEY CEREBRAS_API_KEY MISTRAL_API_KEY CLOUDFLARE_API_KEY CLOUDFLARE_ACCOUNT_ID; do
+  printf "REPLACE_ME" | gcloud secrets create $S --data-file=- || true
+  gcloud secrets add-iam-policy-binding $S \
+    --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+    --role="roles/secretmanager.secretAccessor"
+done
+
 --------------------------------------------------------------------------------
 STEP 5: BUILD & DEPLOY TO CLOUD RUN (ZERO-COST FLAGS)
 --------------------------------------------------------------------------------
@@ -101,8 +110,8 @@ gcloud run deploy agent-stocks-service \
   --concurrency 80 \
   --cpu-throttling \
   --timeout 300 \
-  --set-env-vars="GEMINI_MODEL_NAME=gemini-flash-latest,SCHEDULER_TIMEZONE=Asia/Bangkok,MARKET_SNAPSHOT_TTL_MINUTES=15" \
-  --set-secrets="LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest"
+  --set-env-vars="GEMINI_MODEL_NAME=gemini-flash-latest,SCHEDULER_TIMEZONE=Asia/Bangkok,MARKET_SNAPSHOT_TTL_MINUTES=15,LLM_PROVIDER_ORDER=gemini,groq,cerebras,mistral,cloudflare,ollama" \
+  --set-secrets="LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,GROQ_API_KEY=GROQ_API_KEY:latest,CEREBRAS_API_KEY=CEREBRAS_API_KEY:latest,MISTRAL_API_KEY=MISTRAL_API_KEY:latest,CLOUDFLARE_API_KEY=CLOUDFLARE_API_KEY:latest,CLOUDFLARE_ACCOUNT_ID=CLOUDFLARE_ACCOUNT_ID:latest"
 
 # Explanation of Zero-Cost Flags:
 # --min-instances 0   : Zero containers run when idle = $0 charge.

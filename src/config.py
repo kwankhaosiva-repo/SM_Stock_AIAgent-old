@@ -47,9 +47,26 @@ class Config:
     SETTRADE_APP_CODE = os.getenv('SETTRADE_APP_CODE', 'SANDBOX')
     SETTRADE_IS_SANDBOX = os.getenv('SETTRADE_IS_SANDBOX', 'true').lower() == 'true'
 
-    # LLM Settings
+    # LLM Settings (single primary provider)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
     GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-flash-latest')
+
+    # Multi-provider free-tier failover chain. Providers without keys are
+    # skipped; on failure the SAME prompt + context goes to the next one.
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+    GROQ_MODEL_NAME = os.getenv('GROQ_MODEL_NAME', 'llama-3.3-70b-versatile')
+    CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY', '')
+    CEREBRAS_MODEL_NAME = os.getenv('CEREBRAS_MODEL_NAME', 'llama-3.3-70b')
+    MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY', '')
+    MISTRAL_MODEL_NAME = os.getenv('MISTRAL_MODEL_NAME', 'mistral-small-latest')
+    CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
+    CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID', '')
+    CLOUDFLARE_MODEL_NAME = os.getenv('CLOUDFLARE_MODEL_NAME', 'meta/llama-3.1-8b-instruct')
+    OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', '')
+    OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'llama3.1')
+    LLM_PROVIDER_ORDER = os.getenv(
+        'LLM_PROVIDER_ORDER', 'gemini,groq,cerebras,mistral,cloudflare,ollama'
+    )
 
     # Report workflow and worker settings. Redis is optional for local development,
     # but required in production so report jobs survive web-server restarts.
