@@ -7,12 +7,14 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from flask import Flask
 from config import Config
 from api.line_webhook import line_webhook_bp
+from api.web_chat import web_chat_bp
 
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Register Webhook API blueprint
+# Register channel blueprints: LINE webhook + Web chat UI
 app.register_blueprint(line_webhook_bp)
+app.register_blueprint(web_chat_bp)
 
 _db_initialized = False
 
@@ -43,7 +45,7 @@ def before_request_hook():
 
 @app.route("/health", methods=['GET'])
 def health():
-    return {"status": "ok"}, 200
+    return {"status": "ok", "channels": ["line", "web", "discord"]}, 200
 
 
 @app.route("/cron/trigger", methods=['GET', 'POST'])

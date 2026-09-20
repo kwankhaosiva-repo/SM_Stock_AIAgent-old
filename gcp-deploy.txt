@@ -165,4 +165,32 @@ gcloud scheduler jobs run agent-stocks-hourly-cron --location=asia-southeast1
 
 # Delete service if needed:
 # gcloud run services delete agent-stocks-service --region asia-southeast1
+
+--------------------------------------------------------------------------------
+STEP 9 (OPTIONAL): DISCORD BOT ON CLOUD RUN JOBS (FREE TIER)
+--------------------------------------------------------------------------------
+The Discord bot is a long-polling process, not an HTTP service. Run it as a
+Cloud Run Job (scales to zero only when stopped; free tier covers light usage
+via the always-eligible e2-micro alternative below).
+
+# 1. Store the bot token:
+printf "YOUR_DISCORD_BOT_TOKEN" | gcloud secrets create DISCORD_BOT_TOKEN --data-file=-
+gcloud secrets add-iam-policy-binding DISCORD_BOT_TOKEN \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+
+# 2. Deploy the job (same image as the web service):
+gcloud run jobs create agent-stocks-discord \
+  --image=agent-stocks-service:latest \
+  --region=asia-southeast1 \
+  --command=python --args=src/discord_bot.py \
+  --set-secrets="DISCORD_BOT_TOKEN=DISCORD_BOT_TOKEN:latest,DATABASE_URL=DATABASE_URL:latest" \
+  --max-retries=0
+
+# 3. Start / stop:
+gcloud run jobs deploy agent-stocks-discord --region asia-southeast1
+gcloud run jobs execute agent-stocks-discord --region asia-southeast1 --wait
+
+# Note: the Web chat UI ships inside the main service at /web/chat —
+# no extra deployment needed.
 ================================================================================

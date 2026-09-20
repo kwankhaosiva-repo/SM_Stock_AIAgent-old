@@ -2,7 +2,6 @@
 
 import time
 
-from line_templates import get_analysis_flex
 from reporting.line_report_renderer import LineReportRenderer
 from workflows import ReportWorkflow
 
@@ -30,12 +29,18 @@ def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=N
                 callback_func(bubble, report)
         except Exception as exc:
             print(f'[SERVICE] Failed to process {symbol}: {exc}')
-            flex = get_analysis_flex(symbol, 'CAUTIOUS', 'ไม่สามารถสร้างรายงานได้ในขณะนี้', {})
-            if flex and 'contents' in flex:
-                bubble = flex['contents']
-                bubbles.append(bubble)
-                if callback_func:
-                    callback_func(bubble, None)
+            fallback_report = {
+                'symbol': symbol,
+                'signal': 'Cautious',
+                'reason': 'ไม่สามารถสร้างรายงานได้ในขณะนี้',
+                'metrics': {},
+                'technicals': {},
+                'updated_at': '',
+            }
+            bubble = LineReportRenderer.render_stock_card(fallback_report)
+            bubbles.append(bubble)
+            if callback_func:
+                callback_func(bubble, None)
         if index < len(stocks) - 1:
             time.sleep(1)
     return bubbles

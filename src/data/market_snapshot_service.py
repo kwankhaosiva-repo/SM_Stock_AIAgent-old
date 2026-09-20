@@ -13,6 +13,9 @@ from .providers import (
     MarketDataProvider,
     NewsDataProvider,
     NewsProvider,
+    ProviderSkip,
+    RelayMarketDataProvider,
+    SettradeOpenDataProvider,
     ThaiMarketDataProvider,
     YahooMarketDataProvider,
 )
@@ -33,15 +36,54 @@ class MarketSnapshotService:
         self._news_provider = news_provider or NewsProvider()
         self._yahoo_provider = YahooMarketDataProvider()
         self._thai_provider = ThaiMarketDataProvider()
+        self._settrade_provider = SettradeOpenDataProvider()
+        self._relay_provider = RelayMarketDataProvider()
         self.db = db_session
 
     def _resolve_market_provider(self, symbol: str) -> MarketDataProvider:
+        """Single-provider resolution kept for explicit injection/tests.
+        For automatic resolution, _fetch_with_fallback walks the chain."""
         if self._market_provider is not None:
             return self._market_provider
         clean_symbol = symbol.upper().strip()
         if clean_symbol.endswith('.BK'):
             return self._thai_provider
         return self._yahoo_provider
+
+    def _provider_chain(self, symbol: str):
+        """Anti-block fallback chain.
+
+        Thai (.BK): official Settrade feed -> home relay (residential IP)
+                    -> Settrade helper/yfinance -> plain yfinance
+        Global:     home relay -> yfinance
+        A provider raising ProviderSkip (no key, wrong symbol type, blocked)
+        falls through to the next one.
+        """
+        if self._market_provider is not None:
+            return [self._market_provider]
+        clean_symbol = symbol.upper().strip()
+        if clean_symbol.endswith('.BK'):
+            return [
+                self._settrade_provider,
+                self._relay_provider,
+                self._thai_provider,
+                self._yahoo_provider,
+            ]
+        return [self._relay_provider, self._yahoo_provider]
+
+    def _fetch_with_fallback(self, symbol: str) -> tuple[Dict[str, Any], str]:
+        errors: list[str] = []
+        for provider in self._provider_chain(symbol):
+            try:
+                return provider.fetch(symbol), provider.name
+            except ProviderSkip as exc:
+                print(f'[SnapshotService] {provider.name} skip: {exc}')
+            except Exception as exc:
+                errors.append(f'{provider.name}: {exc}')
+                print(f'[SnapshotService] {provider.name} failed: {exc}')
+        raise ValueError(
+            f'All market data providers failed for {symbol}: ' + ' | '.join(errors)
+        )
 
     def get_or_collect(self, symbol: str) -> Tuple[MarketSnapshotData, Optional[int]]:
         symbol = symbol.upper().strip()
@@ -63,9 +105,8 @@ class MarketSnapshotService:
                 )
                 return snapshot, cached.id
 
-            # 2. Collect fresh data
-            provider = self._resolve_market_provider(symbol)
-            raw = provider.fetch(symbol)
+            # 2. Collect fresh data via the anti-block provider chain
+            raw, provider_name = self._fetch_with_fallback(symbol)
 
             # Collect news sources
             news_sources = []
@@ -74,14 +115,14 @@ class MarketSnapshotService:
             except Exception as exc:
                 print(f"[SnapshotService] News fetch warning for {symbol}: {exc}")
 
-            snapshot = self._build_snapshot(symbol, raw, news_sources, provider.name)
+            snapshot = self._build_snapshot(symbol, raw, news_sources, provider_name)
             
             # Save to database
             ttl_minutes = getattr(Config, 'MARKET_SNAPSHOT_TTL_MINUTES', 15)
             collected_at_naive = _utcnow_naive()
             record = MarketSnapshot(
                 symbol=symbol,
-                provider=provider.name,
+                provider=provider_name,
                 data_json=json.dumps(snapshot.to_dict(), default=str),
                 collected_at=collected_at_naive,
                 expires_at=collected_at_naive + timedelta(minutes=ttl_minutes),

@@ -113,7 +113,7 @@ def get_watchlist_carousel(stocks):
                     "style": "secondary", "height": "sm", "color": "#F0F2F5", "margin": "md"
                 },
                 {
-                    "type": "button", "action": {"type": "postback", "label": "Delete", "data": f"action=delete&symbol={symbol}"}, 
+                    "type": "button", "action": {"type": "postback", "label": "Delete", "data": f"action=confirm_delete&symbol={symbol}", "displayText": f"ยืนยันการลบ {symbol}"}, 
                     "style": "primary", "height": "sm", "color": "#ff4444", "margin": "sm"
                 },
                 {"type": "separator", "margin": "lg"}

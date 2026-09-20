@@ -40,12 +40,18 @@ class Config:
     FINNHUB_API_KEY = os.getenv('FINNHUB_API_KEY')
     TWELVE_DATA_API_KEY = os.getenv("TWELVE_DATA_API_KEY")
 
-    # Settrade Open API (Thai Stocks)
-    SETTRADE_APP_ID = os.getenv('SETTRADE_APP_ID')
-    SETTRADE_APP_SECRET = os.getenv('SETTRADE_APP_SECRET')
-    SETTRADE_BROKER_ID = os.getenv('SETTRADE_BROKER_ID', 'SANDBOX')
+    # Settrade Open API (Thai Stocks, official feed)
+    SETTRADE_APP_ID = os.getenv('SETTRADE_APP_ID', '')
+    SETTRADE_APP_SECRET = os.getenv('SETTRADE_APP_SECRET', '')
+    SETTRADE_BROKER_ID = os.getenv('SETTRADE_BROKER_ID', '098')
     SETTRADE_APP_CODE = os.getenv('SETTRADE_APP_CODE', 'SANDBOX')
     SETTRADE_IS_SANDBOX = os.getenv('SETTRADE_IS_SANDBOX', 'true').lower() == 'true'
+
+    # Financial Modeling Prep (balance-sheet fallback when Yahoo blocks)
+    FMP_API_KEY = os.getenv('FMP_API_KEY', '')
+
+    # Optional local data relay (Cloudflare Tunnel URL of the home agent)
+    DATA_RELAY_URL = os.getenv('DATA_RELAY_URL', '')
 
     # LLM Settings (single primary provider)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')

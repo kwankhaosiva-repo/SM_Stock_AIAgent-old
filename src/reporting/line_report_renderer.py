@@ -289,6 +289,164 @@ class LineReportRenderer:
         }
 
     @classmethod
+    def render_market_brief_card(cls, symbol: str, brief: Dict[str, Any]) -> Dict[str, Any]:
+        """Render the AI news-analysis Market Brief as a Flex bubble.
+
+        `brief` is the dict produced by analysis.news_analysis.analyze_news:
+        summary, news[], impact (Positive|Mixed|Negative), advice[], disclaimer,
+        provider.
+        """
+        impact = str(brief.get('impact', 'Mixed'))
+        if impact not in ('Positive', 'Mixed', 'Negative'):
+            impact = 'Mixed'
+        impact_cfg = {
+            'Positive': {'color': '#16803C', 'bg': '#E8F5E9', 'emoji': '🟢'},
+            'Mixed': {'color': '#8A6100', 'bg': '#FFF8E1', 'emoji': '🟡'},
+            'Negative': {'color': '#B42318', 'bg': '#FFEBEE', 'emoji': '🔴'},
+        }[impact]
+        cfg = impact_cfg
+
+        sym = str(symbol).upper()
+        provider = str(brief.get('provider') or 'ai')
+        provider_label = 'โหมดสำรอง (ตัวเลขล้วน)' if provider == 'fallback' else f'AI: {provider}'
+
+        news_rows = [
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "xs",
+                "contents": [
+                    {"type": "text", "text": "•", "size": "xs", "color": cfg['color'], "flex": 0},
+                    {"type": "text", "text": str(n), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                ],
+            }
+            for n in (brief.get('news') or [])[:5]
+        ]
+        if not news_rows:
+            news_rows = [{"type": "text", "text": "ไม่มีข่าวสารล่าสุดในระบบ", "size": "xs", "color": "#9CA3AF"}]
+
+        advice_rows = [
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "xs",
+                "contents": [
+                    {"type": "text", "text": f"{idx}.", "size": "xs", "color": "#16803C", "flex": 0, "weight": "bold"},
+                    {"type": "text", "text": str(a), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                ],
+            }
+            for idx, a in enumerate((brief.get('advice') or [])[:4], 1)
+        ]
+        if not advice_rows:
+            advice_rows = [{"type": "text", "text": "ติดตามข่าวสารก่อนตัดสินใจ", "size": "xs", "color": "#4B5563"}]
+
+        body_contents = [
+            # Header: symbol + impact badge
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "contents": [
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {"type": "text", "text": f"📰 Market Brief", "size": "xxs", "color": "#6B7280"},
+                            {"type": "text", "text": sym, "weight": "bold", "size": "xl", "color": "#111827"},
+                        ],
+                        "flex": 1,
+                    },
+                    {
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"{cfg['emoji']} {impact}",
+                                "size": "xxs",
+                                "weight": "bold",
+                                "color": cfg['color'],
+                                "align": "center",
+                            }
+                        ],
+                        "backgroundColor": cfg['bg'],
+                        "cornerRadius": "md",
+                        "paddingAll": "6px",
+                        "flex": 0,
+                    },
+                ],
+            },
+            # Summary
+            {
+                "type": "text",
+                "text": str(brief.get('summary') or ''),
+                "size": "xs",
+                "color": "#1F2937",
+                "wrap": True,
+                "margin": "md",
+            },
+            {"type": "separator", "margin": "md"},
+            # Top news
+            {"type": "text", "text": "🗞 ข่าวย้ายตลาด:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {
+                "type": "box",
+                "layout": "vertical",
+                "margin": "sm",
+                "spacing": "xs",
+                "contents": news_rows,
+            },
+            # Advice
+            {"type": "separator", "margin": "md"},
+            {"type": "text", "text": "💡 คำแนะนำ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {
+                "type": "box",
+                "layout": "vertical",
+                "margin": "sm",
+                "spacing": "xs",
+                "contents": advice_rows,
+            },
+            # Disclaimer + provider
+            {"type": "separator", "margin": "md"},
+            {
+                "type": "text",
+                "text": f"{brief.get('disclaimer', 'ข้อมูลเพื่อประกอบการพิจารณา ไม่ใช่คำแนะนำการลงทุน')} ({provider_label})",
+                "size": "xxs",
+                "color": "#9CA3AF",
+                "wrap": True,
+                "align": "center",
+                "margin": "sm",
+            },
+        ]
+
+        return {
+            "type": "bubble",
+            "size": "mega",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": body_contents,
+            },
+            "footer": {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "xs",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "secondary",
+                        "height": "sm",
+                        "action": {"type": "postback", "label": "📊 Financials", "data": f"action=financials&symbol={sym}"},
+                    },
+                    {
+                        "type": "button",
+                        "style": "secondary",
+                        "height": "sm",
+                        "action": {"type": "postback", "label": "🔄 Refresh", "data": f"action=refresh&symbol={sym}"},
+                    },
+                ],
+            },
+        }
+
+    @classmethod
     def render_daily_digest_card(
         cls,
         summary_text: str,

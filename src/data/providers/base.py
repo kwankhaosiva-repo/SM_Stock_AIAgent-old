@@ -6,6 +6,11 @@ from typing import Any, Dict, List
 from models.analysis_models import SourceItem
 
 
+class ProviderSkip(Exception):
+    """Raised by a provider that cannot serve this request; the resolver
+    silently falls through to the next provider in the chain."""
+
+
 class MarketDataProvider(ABC):
     """Abstract base provider for equity price, fundamental, and historical data."""
 

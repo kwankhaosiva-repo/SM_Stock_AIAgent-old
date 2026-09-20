@@ -27,9 +27,6 @@ line_webhook_bp = Blueprint('line_webhook', __name__)
 line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
 
-USER_STATES: dict[str, Any] = {}
-
-
 def get_or_create_user(line_user_id: str):
     db = SessionLocal()
     user = db.query(User).filter(User.line_user_id == line_user_id).first()
@@ -38,6 +35,21 @@ def get_or_create_user(line_user_id: str):
         db.add(user)
         db.commit()
     return user, db
+
+
+def set_chat_state(line_user_id: str, db, state: str | None) -> None:
+    """Persist chat state on the user row so state survives instance restarts
+    and is shared across Cloud Run instances."""
+    user = db.query(User).filter(User.line_user_id == line_user_id).first()
+    if user is None:
+        return
+    user.chat_state = state
+    db.commit()
+
+
+def get_chat_state(line_user_id: str, db) -> str | None:
+    user = db.query(User).filter(User.line_user_id == line_user_id).first()
+    return user.chat_state if user else None
 
 
 def check_stock_exists(symbol: str):
@@ -87,7 +99,9 @@ def handle_message(event):
     user_id = event.source.user_id
 
     if text == "เพิ่มรายชื่อหุ้น":
-        USER_STATES[user_id] = "ADD_STOCK"
+        user, db = get_or_create_user(user_id)
+        set_chat_state(user_id, db, "ADD_STOCK")
+        db.close()
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="พิมพ์ชื่อหุ้นที่ต้องการเพิ่ม (เช่น PTT NVDA) หรือพิมพ์หลายตัวด้วยการเว้นวรรค"),
@@ -96,17 +110,18 @@ def handle_message(event):
 
     menu_keywords = ["ตั้งเวลา", "แสดงผล", "รายการหุ้น", "ตั้งค่า", "ผลงาน", "Setting", "Watcher"]
     if any(k in text for k in menu_keywords):
-        if user_id in USER_STATES:
-            del USER_STATES[user_id]
+        user, db = get_or_create_user(user_id)
+        set_chat_state(user_id, db, None)
+        db.close()
         return
 
-    current_state = USER_STATES.get(user_id)
+    user, db = get_or_create_user(user_id)
+    current_state = get_chat_state(user_id, db)
     if current_state == "ADD_STOCK":
         potential_stocks = text.split()
         confirm_flexes = []
         duplicate_list = []
 
-        user, db = get_or_create_user(user_id)
         for raw_symbol in potential_stocks:
             symbol = raw_symbol.upper()
             if len(symbol) < 2 or len(symbol) > 10:
@@ -121,9 +136,9 @@ def handle_message(event):
                     flex_content = get_add_stock_confirm_flex(found_symbol, found_symbol, price)
                     if flex_content and 'contents' in flex_content:
                         confirm_flexes.append(flex_content['contents'])
+        db.commit()
+        set_chat_state(user_id, db, None)
         db.close()
-
-        msgs = []
         if duplicate_list:
             msgs.append(TextSendMessage(text="! หุ้นเหล่านี้มีอยู่แล้ว: " + ", ".join(duplicate_list)))
         if confirm_flexes:
@@ -141,7 +156,6 @@ def handle_message(event):
                 line_bot_api.reply_message(event.reply_token, msgs)
             except Exception as e:
                 print(f"Reply Error: {e}")
-        del USER_STATES[user_id]
     else:
         try:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="กรุณาเลือกเมนูจากด้านล่างครับ ↓"))
@@ -192,7 +206,46 @@ def handle_postback(event):
         elif action in ('cancel_add', 'cancel'):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ยกเลิกรายการแล้ว"))
 
-        # --- Delete Stock ---
+        # --- Delete Stock (two-step confirm) ---
+        elif action == 'confirm_delete' and symbol:
+            confirm_bubble = {
+                "type": "bubble",
+                "size": "mega",
+                "body": {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "🗑 ยืนยันการลบ", "size": "lg", "weight": "bold", "color": "#B42318"},
+                        {"type": "text", "text": f"ต้องการลบ {symbol} ออกจาก Watchlist ใช่หรือไม่?", "size": "sm", "color": "#374151", "wrap": True, "margin": "md"},
+                        {"type": "text", "text": "การลบไม่สามารถย้อนกลับได้", "size": "xxs", "color": "#9CA3AF", "margin": "sm"},
+                    ],
+                },
+                "footer": {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": "#ff4444",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "ลบเลย", "data": f"action=delete&symbol={symbol}"},
+                        },
+                        {
+                            "type": "button",
+                            "style": "secondary",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "ยกเลิก", "data": "action=cancel"},
+                        },
+                    ],
+                },
+            }
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text=f"ยืนยันลบ {symbol}", contents=confirm_bubble),
+            )
+
         elif action in ('delete_stock', 'delete') and symbol:
             item = db.query(Watchlist).filter_by(user_id=user.id, symbol=symbol).first()
             if item:
@@ -320,17 +373,15 @@ def handle_postback(event):
                 'investment_goal': user.investment_goal,
                 'risk_appetite': user.risk_appetite,
             })
-            impact_icon = {'Positive': '🟢', 'Mixed': '🟡', 'Negative': '🔴'}.get(brief['impact'], '🟡')
-            news_text = (
-                f"📰 Market Brief: {snapshot.symbol} {impact_icon} {brief['impact']}\n\n"
-                f"{brief['summary']}\n\n"
-                + "\n".join(f"• {n}" for n in brief['news'][:5])
-                + "\n\n💡 คำแนะนำ:\n" + "\n".join(f"- {a}" for a in brief['advice'])
-                + f"\n\n_{brief['disclaimer']}_"
+            from reporting.line_report_renderer import LineReportRenderer
+            brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble),
             )
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=news_text[:4900]))
 
         elif action == 'financials' and symbol:
+            from data.financials_service import FinancialsService
             from data.market_snapshot_service import MarketSnapshotService
             snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
             fin_text = (
@@ -340,9 +391,23 @@ def handle_postback(event):
                 f"- Dividend Yield: {snapshot.div_yield or 'N/A'}%\n"
                 f"- RSI(14): {snapshot.technicals.get('rsi', 'N/A')}\n"
                 f"- SMA50: {snapshot.technicals.get('sma50', 'N/A')}\n"
-                f"- แนวรับ/แนวต้าน: {snapshot.technicals.get('support', '-')}/{snapshot.technicals.get('resistance', '-')}"
+                f"- แนวรับ/แนวต้าน: {snapshot.technicals.get('support', '-')}/{snapshot.technicals.get('resistance', '-')}\n\n"
             )
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=fin_text))
+            try:
+                fin_data = FinancialsService().get_financials(symbol, db=db)
+                if fin_data.get('balance_sheet'):
+                    fin_text += f"🏦 งบดุล (งวด {fin_data.get('period') or 'ล่าสุด'}):\n"
+                    for label, value in fin_data['balance_sheet'][:6]:
+                        fin_text += f"- {label}: {value}\n"
+                if fin_data.get('income'):
+                    fin_text += f"\n💰 งบกำไรขาดทุน:\n"
+                    for label, value in fin_data['income'][:4]:
+                        fin_text += f"- {label}: {value}\n"
+                fin_text += f"\n(แหล่งข้อมูล: {fin_data.get('source')})"
+            except Exception as exc:
+                print(f'[Financials] unavailable for {symbol}: {exc}')
+                fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้"
+            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=fin_text[:4900]))
 
         elif action in ('get_report', 'refresh'):
             target_symbol = symbol if action == 'refresh' else None

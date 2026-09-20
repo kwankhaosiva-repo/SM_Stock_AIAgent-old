@@ -20,7 +20,11 @@ class User(Base):
     core_strategy = Column(String, default="AI-Auto") # Value, Growth, Dividend, Technical, AI-Auto
     risk_appetite = Column(String, default="Medium") # Low, Medium, High
     report_format = Column(String, default="Short") # Short, Long
-    
+
+    # Ephemeral chat state (e.g. ADD_STOCK) so multi-instance Cloud Run
+    # deployments share state instead of relying on in-memory dicts.
+    chat_state = Column(String, nullable=True)
+
     # Relationships
     watchlist = relationship("Watchlist", back_populates="user", cascade="all, delete-orphan")
     schedule = relationship("Schedule", uselist=False, back_populates="user", cascade="all, delete-orphan")
@@ -89,6 +93,17 @@ class SourceDocument(Base):
     published_at = Column(String, nullable=True)
     source_type = Column(String, nullable=False, default='news')
     content = Column(Text, nullable=True)
+
+
+class FinancialStatementCache(Base):
+    """Cached balance-sheet/income snapshots (statements change quarterly)."""
+    __tablename__ = 'financial_statement_cache'
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, index=True, nullable=False)
+    data_json = Column(Text, nullable=False)
+    source = Column(String, nullable=False, default='yahoo')
+    collected_at = Column(DateTime, default=_utcnow_naive, nullable=False, index=True)
 
 
 class AnalysisRun(Base):
