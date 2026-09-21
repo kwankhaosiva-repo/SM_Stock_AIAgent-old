@@ -6,6 +6,24 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+# --- ENV_FILE from Secret Manager -------------------------------------------
+# If the whole .env file was uploaded to Secret Manager (e.g. secret name
+# 'env_stocks') and mapped to a container env var, parse it here so every
+# key inside becomes a normal environment variable.
+for _env_file_var in ('ENV_FILE', 'ENV_STOCKS', 'env_stocks'):
+    _env_file_content = os.environ.get(_env_file_var, '')
+    if _env_file_content and '=' in _env_file_content:
+        for _line in _env_file_content.splitlines():
+            _line = _line.strip()
+            if not _line or _line.startswith('#') or '=' not in _line:
+                continue
+            _key, _, _val = _line.partition('=')
+            _key = _key.strip()
+            _val = _val.strip().strip('"').strip("'")
+            if _key:
+                os.environ.setdefault(_key, _val)
+        break
+
 class Config:
     # Point to Project Root
     BASE_DIR = str(BASE_DIR)

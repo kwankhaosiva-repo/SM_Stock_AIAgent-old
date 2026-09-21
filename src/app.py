@@ -48,6 +48,29 @@ def health():
     return {"status": "ok", "channels": ["line", "web", "discord"]}, 200
 
 
+@app.route("/debug/config", methods=['GET'])
+def debug_config():
+    """Report which env vars are actually visible to THIS container.
+    Shows only set/empty + whether a value is a known placeholder — never the value itself.
+    Use to diagnose secret mounting issues on Cloud Run."""
+    def status(name: str, default: str = '') -> str:
+        val = os.environ.get(name, '')
+        if not val or val == default:
+            return 'PLACEHOLDER/EMPTY'
+        return 'SET'
+
+    from config import Config
+    return {
+        'LINE_CHANNEL_SECRET': status('LINE_CHANNEL_SECRET', 'YOUR_CHANNEL_SECRET'),
+        'LINE_CHANNEL_ACCESS_TOKEN': status('LINE_CHANNEL_ACCESS_TOKEN', 'YOUR_ACCESS_TOKEN'),
+        'GEMINI_API_KEY': status('GEMINI_API_KEY') or status('GEMINI_API'),
+        'GROQ_API_KEY': status('GROQ_API_KEY') or status('GROQ_API'),
+        'MISTRAL_API_KEY': status('MISTRAL_API_KEY') or status('MISTRAL_API'),
+        'OPENROUTER_API_KEY': status('OPENROUTER_API_KEY') or status('OPENROUTER_API'),
+        'DATABASE_URL': 'SET' if Config.DATABASE_URL.startswith('postgres') else 'LOCAL_SQLITE',
+    }, 200
+
+
 @app.route("/cron/trigger", methods=['GET', 'POST'])
 def cron_trigger():
     """Endpoint for Google Cloud Scheduler or HTTP cron to trigger hourly checks."""
