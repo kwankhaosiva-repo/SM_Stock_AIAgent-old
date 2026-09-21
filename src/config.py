@@ -68,8 +68,8 @@ class Config:
     CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
     CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID', '')
     CLOUDFLARE_MODEL_NAME = os.getenv('CLOUDFLARE_MODEL_NAME', 'meta/llama-3.1-8b-instruct')
-    OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', '')
-    OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'llama3.1')
+    OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+    OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'mistral-small3.2:24b')
     LLM_PROVIDER_ORDER = os.getenv(
         'LLM_PROVIDER_ORDER', 'gemini,groq,cerebras,mistral,cloudflare,ollama'
     )

@@ -90,7 +90,14 @@ def analyze_news(
         text = raw.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        data = json.loads(text)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            # Local models often wrap JSON in prose — grab first {...} block.
+            start, end = text.find('{'), text.rfind('}')
+            if start == -1 or end <= start:
+                raise
+            data = json.loads(text[start:end + 1])
         return {
             "summary": str(data.get("summary", ""))[:2000],
             "news": [str(item) for item in (data.get("news") or [])][:8],

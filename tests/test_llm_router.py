@@ -42,9 +42,14 @@ class TestLLMRouter(unittest.TestCase):
             router.generate('p')
 
     def test_empty_chain_raises(self):
-        router = LLMRouter(order=[])
-        with self.assertRaises(ProviderError):
-            router.generate('p')
+        # Patch order to empty so the chain is truly empty regardless of
+        # which providers happen to be usable in this environment
+        # (e.g. a running local Ollama server satisfies the default chain).
+        with patch.object(lp.Config, 'LLM_PROVIDER_ORDER', ''):
+            router = LLMRouter(order=[])
+            self.assertEqual(router.chain, [])
+            with self.assertRaises(ProviderError):
+                router.generate('p')
 
     def test_skips_provider_without_key(self):
         with patch.object(lp.Config, 'GROQ_API_KEY', ''):

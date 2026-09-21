@@ -7,6 +7,7 @@ ultimately answers.
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -135,8 +136,19 @@ def call_ollama(prompt: str) -> str:
     try:
         resp = requests.post(
             f"{Config.OLLAMA_BASE_URL}/api/generate",
-            json={"model": Config.OLLAMA_MODEL_NAME, "prompt": prompt, "stream": False},
-            timeout=120,
+            json={
+                "model": Config.OLLAMA_MODEL_NAME,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    # Default num_predict (~128) truncates JSON mid-string,
+                    # and default num_ctx (2048) truncates the INPUT prompt
+                    # (market data + headlines exceed it) -> raise both.
+                    "num_predict": int(os.getenv('OLLAMA_NUM_PREDICT', '2048')),
+                    "num_ctx": int(os.getenv('OLLAMA_NUM_CTX', '8192')),
+                },
+            },
+            timeout=300,
         )
         resp.raise_for_status()
         return resp.json()["response"]
