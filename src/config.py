@@ -10,8 +10,8 @@ class Config:
     # Point to Project Root
     BASE_DIR = str(BASE_DIR)
     
-    # Database
-    DATABASE_URL = os.getenv('DATABASE_URL')
+    # Database — DATABASE_URL หรือ POSTGRES_URL (ชื่อใน .env ของ user)
+    DATABASE_URL = os.getenv('DATABASE_URL') or os.getenv('POSTGRES_URL')
     
     # Cloud Run (Postgres) vs Local (SQLite) Logic
     if DATABASE_URL and 'postgres' in DATABASE_URL:
@@ -54,24 +54,31 @@ class Config:
     DATA_RELAY_URL = os.getenv('DATA_RELAY_URL', '')
 
     # LLM Settings (single primary provider)
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    # รองรับชื่อย่อจาก .env ของ user (GEMINI_API) และชื่อเต็ม (GEMINI_API_KEY)
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or os.getenv('GEMINI_API', '')
     GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-flash-latest')
 
     # Multi-provider free-tier failover chain. Providers without keys are
     # skipped; on failure the SAME prompt + context goes to the next one.
-    GROQ_API_KEY = os.getenv('GROQ_API_KEY', '')
+    GROQ_API_KEY = os.getenv('GROQ_API_KEY') or os.getenv('GROQ_API', '')
     GROQ_MODEL_NAME = os.getenv('GROQ_MODEL_NAME', 'llama-3.3-70b-versatile')
     CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY', '')
     CEREBRAS_MODEL_NAME = os.getenv('CEREBRAS_MODEL_NAME', 'llama-3.3-70b')
-    MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY', '')
+    MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY') or os.getenv('MISTRAL_API', '')
     MISTRAL_MODEL_NAME = os.getenv('MISTRAL_MODEL_NAME', 'mistral-small-latest')
-    CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY', '')
+    CLOUDFLARE_API_KEY = os.getenv('CLOUDFLARE_API_KEY') or os.getenv('CLOUDFLARE_API', '')
     CLOUDFLARE_ACCOUNT_ID = os.getenv('CLOUDFLARE_ACCOUNT_ID', '')
     CLOUDFLARE_MODEL_NAME = os.getenv('CLOUDFLARE_MODEL_NAME', 'meta/llama-3.1-8b-instruct')
+    # OpenRouter — free models available via ":free" suffix
+    OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENROUTER_API', '')
+    OPENROUTER_MODEL_NAME = os.getenv(
+        'OPENROUTER_MODEL_NAME', 'meta-llama/llama-3.3-70b-instruct:free'
+    )
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
     OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'mistral-small3.2:24b')
     LLM_PROVIDER_ORDER = os.getenv(
-        'LLM_PROVIDER_ORDER', 'gemini,groq,cerebras,mistral,cloudflare,ollama'
+        'LLM_PROVIDER_ORDER',
+        'gemini,groq,cerebras,mistral,cloudflare,openrouter,ollama'
     )
 
     # Report workflow and worker settings. Redis is optional for local development,
@@ -84,3 +91,10 @@ class Config:
     # App Settings
     SCHEDULER_TIMEZONE = 'Asia/Bangkok'
     DEBUG = False
+
+    # Discord — DISCORD_KET_STOCKS คือชื่อที่ user ใช้ใน .env (typo แต่รองรับไว้)
+    DISCORD_BOT_TOKEN = (
+        os.getenv('DISCORD_BOT_TOKEN')
+        or os.getenv('DISCORD_KET_STOCKS')
+        or os.getenv('DISCORD_ID_STOCKS', '')
+    )

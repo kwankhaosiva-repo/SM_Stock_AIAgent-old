@@ -87,8 +87,9 @@ def build_embeds(responses):
 def main():
     import discord
     from chat_service import ChatRequest, dispatch
+    from config import Config
 
-    token = os.getenv('DISCORD_BOT_TOKEN')
+    token = Config.DISCORD_BOT_TOKEN
     if not token:
         raise SystemExit('DISCORD_BOT_TOKEN is not set')
 

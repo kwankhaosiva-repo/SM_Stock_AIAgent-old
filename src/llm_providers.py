@@ -130,6 +130,18 @@ def call_cloudflare(prompt: str) -> str:
         raise ProviderError(f"unexpected response shape: {exc}") from exc
 
 
+def call_openrouter(prompt: str) -> str:
+    """OpenRouter — one key, hundreds of models incl. free tiers (":free")."""
+    if not Config.OPENROUTER_API_KEY:
+        raise ProviderError("OPENROUTER_API_KEY not set")
+    return _openai_compatible(
+        "https://openrouter.ai/api/v1",
+        Config.OPENROUTER_API_KEY,
+        Config.OPENROUTER_MODEL_NAME,
+        prompt,
+    )
+
+
 def call_ollama(prompt: str) -> str:
     if not Config.OLLAMA_BASE_URL:
         raise ProviderError("OLLAMA_BASE_URL not set")
@@ -165,6 +177,7 @@ PROVIDERS = {
     "cerebras": call_cerebras,
     "mistral": call_mistral,
     "cloudflare": call_cloudflare,
+    "openrouter": call_openrouter,
     "ollama": call_ollama,
 }
 
