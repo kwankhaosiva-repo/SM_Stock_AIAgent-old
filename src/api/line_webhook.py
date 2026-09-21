@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from flask import Blueprint, abort, current_app, request
 from linebot import LineBotApi, WebhookHandler
@@ -50,6 +51,128 @@ def set_chat_state(line_user_id: str, db, state: str | None) -> None:
 def get_chat_state(line_user_id: str, db) -> str | None:
     user = db.query(User).filter(User.line_user_id == line_user_id).first()
     return user.chat_state if user else None
+
+
+# --- Background processing: the webhook must return 200 within seconds ---
+# (LINE aborts with "timeout occurred" otherwise). Heavy work (yfinance,
+# LLM calls) runs here and results are delivered via push_message.
+_BACKGROUND = ThreadPoolExecutor(max_workers=4, thread_name_prefix='line-bg')
+
+
+def _quick_reply(event, text: str) -> None:
+    """Reply immediately so LINE never sees a webhook timeout."""
+    try:
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=text))
+    except Exception as exc:
+        print(f"[Quick Reply Error] {exc}")
+
+
+def _push(line_user_id: str, messages) -> None:
+    """Deliver results after the webhook already returned 200."""
+    try:
+        line_bot_api.push_message(line_user_id, messages)
+    except Exception as exc:
+        print(f"[Push Error] {exc}")
+
+
+def _process_add_stocks(line_user_id: str, user_pk, symbols: list[str]) -> None:
+    confirm_flexes: list = []
+    duplicate_list: list = []
+    db = SessionLocal()
+    try:
+        for symbol in symbols:
+            found_symbol, price = check_stock_exists(symbol)
+            if found_symbol and price:
+                exists = db.query(Watchlist).filter_by(user_id=user_pk, symbol=found_symbol).first()
+                if exists:
+                    duplicate_list.append(found_symbol)
+                else:
+                    flex_content = get_add_stock_confirm_flex(found_symbol, found_symbol, price)
+                    if flex_content and 'contents' in flex_content:
+                        confirm_flexes.append(flex_content['contents'])
+        db.commit()
+    finally:
+        db.close()
+
+    msgs = []
+    if duplicate_list:
+        msgs.append(TextSendMessage(text="! หุ้นเหล่านี้มีอยู่แล้ว: " + ", ".join(duplicate_list)))
+    if confirm_flexes:
+        msgs.append(FlexSendMessage(
+            alt_text="ยืนยันการเพิ่มหุ้น",
+            contents={"type": "carousel", "contents": confirm_flexes[:10]},
+        ))
+    if not msgs:
+        msgs.append(TextSendMessage(text="ไม่พบข้อมูลหุ้นที่ค้นหา ลองตรวจสอบชื่อย่ออีกครั้ง"))
+    _push(line_user_id, msgs)
+
+
+def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
+    from analysis.news_analysis import analyze_news
+    from data.market_snapshot_service import MarketSnapshotService
+    from reporting.line_report_renderer import LineReportRenderer
+
+    db = SessionLocal()
+    try:
+        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
+    finally:
+        db.close()
+    brief = analyze_news(snapshot, profile=profile)
+    brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
+    _push(line_user_id, FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble))
+
+
+def _process_why(line_user_id: str, symbol: str) -> None:
+    from data.market_snapshot_service import MarketSnapshotService
+
+    db = SessionLocal()
+    try:
+        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
+    finally:
+        db.close()
+    reasons_text = f"💡 เหตุผลเชิงลึกสำหรับ {symbol}:\n"
+    for k, v in snapshot.technicals.items():
+        reasons_text += f"- {k}: {v}\n"
+    _push(line_user_id, TextSendMessage(text=reasons_text.strip()[:4900]))
+
+
+def _process_financials(line_user_id: str, symbol: str) -> None:
+    from data.financials_service import FinancialsService
+    from data.market_snapshot_service import MarketSnapshotService
+
+    fin_data = None
+    db = SessionLocal()
+    try:
+        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
+        try:
+            fin_data = FinancialsService().get_financials(symbol, db=db)
+        except Exception as exc:
+            print(f'[Financials] unavailable for {symbol}: {exc}')
+    finally:
+        db.close()
+
+    fin_text = (
+        f"📊 ข้อมูลทางการเงิน {symbol}:\n"
+        f"- ราคา: {snapshot.price:,.2f}\n"
+        f"- P/E: {snapshot.pe_ratio or 'N/A'}\n"
+        f"- Dividend Yield: {snapshot.div_yield or 'N/A'}%\n"
+        f"- RSI(14): {snapshot.technicals.get('rsi', 'N/A')}\n"
+        f"- SMA50: {snapshot.technicals.get('sma50', 'N/A')}\n"
+        f"- แนวรับ/แนวต้าน: {snapshot.technicals.get('support', '-')}/{snapshot.technicals.get('resistance', '-')}\n\n"
+    )
+    if fin_data and fin_data.get('balance_sheet'):
+        fin_text += f"🏦 งบดุล (งวด {fin_data.get('period') or 'ล่าสุด'}):\n"
+        for label, value in fin_data['balance_sheet'][:6]:
+            fin_text += f"- {label}: {value}\n"
+    if fin_data and fin_data.get('income'):
+        fin_text += "\n💰 งบกำไรขาดทุน:\n"
+        for label, value in fin_data['income'][:4]:
+            fin_text += f"- {label}: {value}\n"
+    if fin_data:
+        fin_text += f"\n(แหล่งข้อมูล: {fin_data.get('source')})"
+    else:
+        fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้"
+    _push(line_user_id, TextSendMessage(text=fin_text[:4900]))
 
 
 def check_stock_exists(symbol: str):
@@ -118,44 +241,17 @@ def handle_message(event):
     user, db = get_or_create_user(user_id)
     current_state = get_chat_state(user_id, db)
     if current_state == "ADD_STOCK":
-        potential_stocks = text.split()
-        confirm_flexes = []
-        duplicate_list = []
-
-        for raw_symbol in potential_stocks:
-            symbol = raw_symbol.upper()
-            if len(symbol) < 2 or len(symbol) > 10:
-                continue
-
-            found_symbol, price = check_stock_exists(symbol)
-            if found_symbol and price:
-                exists = db.query(Watchlist).filter_by(user_id=user.id, symbol=found_symbol).first()
-                if exists:
-                    duplicate_list.append(found_symbol)
-                else:
-                    flex_content = get_add_stock_confirm_flex(found_symbol, found_symbol, price)
-                    if flex_content and 'contents' in flex_content:
-                        confirm_flexes.append(flex_content['contents'])
+        potential_stocks = [s.upper() for s in text.split() if 2 <= len(s.upper()) <= 10]
         db.commit()
         set_chat_state(user_id, db, None)
         db.close()
-        if duplicate_list:
-            msgs.append(TextSendMessage(text="! หุ้นเหล่านี้มีอยู่แล้ว: " + ", ".join(duplicate_list)))
-        if confirm_flexes:
-            msgs.append(
-                FlexSendMessage(
-                    alt_text="ยืนยันการเพิ่มหุ้น",
-                    contents={"type": "carousel", "contents": confirm_flexes[:10]},
-                )
-            )
-
-        if not confirm_flexes and not duplicate_list:
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"ไม่พบข้อมูลหุ้น: {text}"))
-        else:
-            try:
-                line_bot_api.reply_message(event.reply_token, msgs)
-            except Exception as e:
-                print(f"Reply Error: {e}")
+        if not potential_stocks:
+            _quick_reply(event, f"ไม่พบชื่อหุ้นที่ถูกต้อง: {text}")
+            return
+        _quick_reply(event, f"กำลังตรวจสอบ {len(potential_stocks)} หุ้น... สักครู่ครับ")
+        # Heavy: yfinance lookups — run in background, deliver via push_message
+        _BACKGROUND.submit(_process_add_stocks, user_id, user.id, potential_stocks)
+        return
     else:
         try:
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="กรุณาเลือกเมนูจากด้านล่างครับ ↓"))
@@ -172,9 +268,6 @@ def handle_postback(event):
     data = event.postback.data or ""
     user_id = event.source.user_id
     user, db = get_or_create_user(user_id)
-
-    if user_id in USER_STATES:
-        del USER_STATES[user_id]
 
     params = {}
     for part in data.split('&'):
@@ -357,57 +450,23 @@ def handle_postback(event):
 
         # --- Report Actions (Rule 8 postback buttons: Why?, News, Financials, Refresh, Schedule) ---
         elif action == 'why' and symbol:
-            from data.market_snapshot_service import MarketSnapshotService
-            snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-            reasons_text = f"💡 เหตุผลเชิงลึกสำหรับ {symbol}:\n"
-            for k, v in snapshot.technicals.items():
-                reasons_text += f"- {k}: {v}\n"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reasons_text.strip()))
+            _quick_reply(event, f"กำลังวิเคราะห์ {symbol}... สักครู่ครับ")
+            _BACKGROUND.submit(_process_why, user_id, symbol)
 
         elif action == 'news' and symbol:
-            from analysis.news_analysis import analyze_news
-            from data.market_snapshot_service import MarketSnapshotService
-            snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-            brief = analyze_news(snapshot, profile={
-                'core_strategy': user.core_strategy,
-                'investment_goal': user.investment_goal,
-                'risk_appetite': user.risk_appetite,
-            })
-            from reporting.line_report_renderer import LineReportRenderer
-            brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
-            line_bot_api.reply_message(
-                event.reply_token,
-                FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble),
+            _quick_reply(event, f"กำลังวิเคราะห์ข่าว {symbol}... สักครู่ครับ 📡")
+            _BACKGROUND.submit(
+                _process_news, user_id, symbol,
+                {
+                    'core_strategy': user.core_strategy,
+                    'investment_goal': user.investment_goal,
+                    'risk_appetite': user.risk_appetite,
+                },
             )
 
         elif action == 'financials' and symbol:
-            from data.financials_service import FinancialsService
-            from data.market_snapshot_service import MarketSnapshotService
-            snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-            fin_text = (
-                f"📊 ข้อมูลทางการเงิน {symbol}:\n"
-                f"- ราคา: {snapshot.price:,.2f}\n"
-                f"- P/E: {snapshot.pe_ratio or 'N/A'}\n"
-                f"- Dividend Yield: {snapshot.div_yield or 'N/A'}%\n"
-                f"- RSI(14): {snapshot.technicals.get('rsi', 'N/A')}\n"
-                f"- SMA50: {snapshot.technicals.get('sma50', 'N/A')}\n"
-                f"- แนวรับ/แนวต้าน: {snapshot.technicals.get('support', '-')}/{snapshot.technicals.get('resistance', '-')}\n\n"
-            )
-            try:
-                fin_data = FinancialsService().get_financials(symbol, db=db)
-                if fin_data.get('balance_sheet'):
-                    fin_text += f"🏦 งบดุล (งวด {fin_data.get('period') or 'ล่าสุด'}):\n"
-                    for label, value in fin_data['balance_sheet'][:6]:
-                        fin_text += f"- {label}: {value}\n"
-                if fin_data.get('income'):
-                    fin_text += f"\n💰 งบกำไรขาดทุน:\n"
-                    for label, value in fin_data['income'][:4]:
-                        fin_text += f"- {label}: {value}\n"
-                fin_text += f"\n(แหล่งข้อมูล: {fin_data.get('source')})"
-            except Exception as exc:
-                print(f'[Financials] unavailable for {symbol}: {exc}')
-                fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้"
-            line_bot_api.reply_message(event.reply_token, TextSendMessage(text=fin_text[:4900]))
+            _quick_reply(event, f"กำลังดึงงบการเงิน {symbol}... สักครู่ครับ")
+            _BACKGROUND.submit(_process_financials, user_id, symbol)
 
         elif action in ('get_report', 'refresh'):
             target_symbol = symbol if action == 'refresh' else None
