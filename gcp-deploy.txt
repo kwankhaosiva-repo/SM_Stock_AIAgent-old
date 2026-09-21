@@ -1,7 +1,7 @@
 ================================================================================
 GCP ZERO-COST PRODUCTION DEPLOYMENT GUIDE: agent-stocks
 ================================================================================
-Target Project ID : agent-stocks
+Target Project ID : agent-stocks-509000
 Region Recommendation: asia-southeast1 (Singapore - Lowest latency for Thailand)
                       or us-central1 (Highest free-tier allowance)
 
@@ -21,7 +21,7 @@ STEP 1: LOGIN & SET GCP PROJECT
 Open your terminal / PowerShell and run:
 
 gcloud auth login
-gcloud config set project agent-stocks
+gcloud config set project agent-stocks-509000
 
 # Verify your active project:
 gcloud config get-value project
@@ -70,7 +70,7 @@ printf "YOUR_LINE_CHANNEL_ACCESS_TOKEN" | gcloud secrets create LINE_CHANNEL_ACC
 printf "YOUR_GEMINI_API_KEY" | gcloud secrets create GEMINI_API_KEY --data-file=-
 
 # Grant Cloud Run default compute service account permission to read secrets:
-PROJECT_NUMBER=$(gcloud projects describe agent-stocks --format="value(projectNumber)")
+PROJECT_NUMBER=$(gcloud projects describe agent-stocks-509000 --format="value(projectNumber)")
 gcloud secrets add-iam-policy-binding LINE_CHANNEL_SECRET \
   --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
   --role="roles/secretmanager.secretAccessor"
@@ -109,9 +109,7 @@ gcloud run deploy agent-stocks-service \
   --max-instances 2 \
   --concurrency 80 \
   --cpu-throttling \
-  --timeout 300 \
-  --set-env-vars="GEMINI_MODEL_NAME=gemini-flash-latest,SCHEDULER_TIMEZONE=Asia/Bangkok,MARKET_SNAPSHOT_TTL_MINUTES=15,LLM_PROVIDER_ORDER=gemini,groq,cerebras,mistral,cloudflare,ollama" \
-  --set-secrets="LINE_CHANNEL_SECRET=LINE_CHANNEL_SECRET:latest,LINE_CHANNEL_ACCESS_TOKEN=LINE_CHANNEL_ACCESS_TOKEN:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,GROQ_API_KEY=GROQ_API_KEY:latest,CEREBRAS_API_KEY=CEREBRAS_API_KEY:latest,MISTRAL_API_KEY=MISTRAL_API_KEY:latest,CLOUDFLARE_API_KEY=CLOUDFLARE_API_KEY:latest,CLOUDFLARE_ACCOUNT_ID=CLOUDFLARE_ACCOUNT_ID:latest"
+  --timeout 300
 
 # Explanation of Zero-Cost Flags:
 # --min-instances 0   : Zero containers run when idle = $0 charge.
