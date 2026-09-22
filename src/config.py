@@ -73,7 +73,10 @@ class Config:
 
     # LLM Settings (single primary provider)
     # รองรับชื่อย่อจาก .env ของ user (GEMINI_API) และชื่อเต็ม (GEMINI_API_KEY)
-    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or os.getenv('GEMINI_API', '')
+    # Gemini direct API (AI Studio) — ปิดไว้ก่อนเนื่องจากต้องผูกบัตร/billing (402)
+    # จะเปิดใช้ค่อย uncomment บรรทัดด้านล่าง (model Gemini ผ่าน UnoRouter ยังใช้ได้ปกติ)
+    # GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or os.getenv('GEMINI_API', '')
+    GEMINI_API_KEY = ''  # disabled
     GEMINI_MODEL_NAME = os.getenv('GEMINI_MODEL_NAME', 'gemini-flash-latest')
 
     # Multi-provider free-tier failover chain. Providers without keys are
@@ -92,11 +95,20 @@ class Config:
     OPENROUTER_MODEL_NAME = os.getenv(
         'OPENROUTER_MODEL_NAME', 'meta-llama/llama-3.3-70b-instruct:free'
     )
+    # UnoRouter — hosted OpenAI-compatible gateway (unorouter.com)
+    UNOROUTER_API_KEY = os.getenv('UNOROUTER_API_KEY') or os.getenv('UNOROUTER_API', '')
+    UNOROUTER_BASE_URL = os.getenv('UNOROUTER_BASE_URL', 'https://api.unorouter.com/v1')
+    UNOROUTER_MODEL_NAME = os.getenv('UNOROUTER_MODEL_NAME', 'gemini-flash-latest')
+    # 9Router — local proxy (http://localhost:20128/v1), auto-fallback 40+ providers
+    ROUTER9_BASE_URL = os.getenv('ROUTER9_BASE_URL', '')
+    ROUTER9_API_KEY = os.getenv('ROUTER9_API_KEY', '')
+    ROUTER9_MODEL_NAME = os.getenv('ROUTER9_MODEL_NAME', 'auto')
     OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
     OLLAMA_MODEL_NAME = os.getenv('OLLAMA_MODEL_NAME', 'mistral-small3.2:24b')
     LLM_PROVIDER_ORDER = os.getenv(
         'LLM_PROVIDER_ORDER',
-        'gemini,groq,cerebras,mistral,cloudflare,openrouter,ollama'
+        # gemini (direct API) ถูกตัดออกชั่วคราว — Gemini model ยังเข้าถึงได้ผ่าน unorouter
+        'groq,cerebras,mistral,cloudflare,openrouter,unorouter,router9,ollama'
     )
 
     # Report workflow and worker settings. Redis is optional for local development,

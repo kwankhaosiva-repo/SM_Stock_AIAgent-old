@@ -12,7 +12,8 @@ _development_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='re
 
 def enqueue_report(user_id, line_user_id, items, user_settings, request_id=None):
     """Queue work outside the webhook; Redis/RQ is the production transport."""
-    request_id = request_id or uuid4().hex
+    # Canonical UUID string — LINE's X-Line-Retry-Key requires the hyphenated form.
+    request_id = request_id or str(uuid4())
     payload = {
         'user_id': user_id,
         'line_user_id': line_user_id,

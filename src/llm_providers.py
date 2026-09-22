@@ -142,6 +142,32 @@ def call_openrouter(prompt: str) -> str:
     )
 
 
+def call_unorouter(prompt: str) -> str:
+    """UnoRouter — hosted OpenAI-compatible gateway, 200+ models (many free)."""
+    if not Config.UNOROUTER_API_KEY:
+        raise ProviderError("UNOROUTER_API_KEY not set")
+    return _openai_compatible(
+        Config.UNOROUTER_BASE_URL,
+        Config.UNOROUTER_API_KEY,
+        Config.UNOROUTER_MODEL_NAME,
+        prompt,
+    )
+
+
+def call_router9(prompt: str) -> str:
+    """9Router — local proxy (localhost:20128/v1) with auto-fallback across
+    40+ providers. Reachable only from the same machine (or via tunnel);
+    skips cleanly when the URL is unset (e.g. on Cloud Run)."""
+    if not Config.ROUTER9_BASE_URL:
+        raise ProviderError("ROUTER9_BASE_URL not set")
+    return _openai_compatible(
+        f"{Config.ROUTER9_BASE_URL.rstrip('/')}/v1",
+        Config.ROUTER9_API_KEY or 'local',
+        Config.ROUTER9_MODEL_NAME,
+        prompt,
+    )
+
+
 def call_ollama(prompt: str) -> str:
     if not Config.OLLAMA_BASE_URL:
         raise ProviderError("OLLAMA_BASE_URL not set")
@@ -178,6 +204,8 @@ PROVIDERS = {
     "mistral": call_mistral,
     "cloudflare": call_cloudflare,
     "openrouter": call_openrouter,
+    "unorouter": call_unorouter,
+    "router9": call_router9,
     "ollama": call_ollama,
 }
 

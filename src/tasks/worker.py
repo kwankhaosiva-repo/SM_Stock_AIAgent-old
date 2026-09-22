@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any, Dict, List
@@ -73,8 +74,14 @@ def process_report_job(payload: Dict[str, Any]):
         message = FlexSendMessage(alt_text='รายงานวิเคราะห์หุ้นของคุณ', contents=contents)
 
         api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
+        # X-Line-Retry-Key must be a canonical UUID string (with hyphens);
+        # request_id may be a bare hex — convert or generate a stable one.
         try:
-            api.push_message(line_user_id, message, retry_key=request_id)
+            retry_key = str(uuid.UUID(request_id))
+        except (ValueError, AttributeError, TypeError):
+            retry_key = str(uuid.uuid5(uuid.NAMESPACE_URL, f'line-push:{request_id}'))
+        try:
+            api.push_message(line_user_id, message, retry_key=retry_key)
         except TypeError:
             # Older installed SDK fallback without retry_key kwarg
             api.push_message(line_user_id, message)

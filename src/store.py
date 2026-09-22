@@ -472,7 +472,17 @@ def _create_backend():
         return MemoryBackend()
 
 
-backend = _create_backend()
+# Lazy backend creation: importing this module must NEVER block (a cold-start
+# Firestore probe once stalled gunicorn for 5 minutes until the worker was
+# SIGKILLed). The backend is created on first data access instead.
+backend = None
+
+
+def _get_backend():
+    global backend
+    if backend is None:
+        backend = _create_backend()
+    return backend
 
 
 # ---------------------------------------------------------------------------
@@ -480,113 +490,113 @@ backend = _create_backend()
 # ---------------------------------------------------------------------------
 
 def get_or_create_user(user_key: str, display_name: str = '') -> Dict:
-    return backend.get_or_create_user(user_key, display_name)
+    return _get_backend().get_or_create_user(user_key, display_name)
 
 
 def get_user(user_key: str) -> Optional[Dict]:
-    return backend.get_user(user_key)
+    return _get_backend().get_user(user_key)
 
 
 def update_user(user_key: str, updates: Dict) -> None:
-    backend.update_user(user_key, updates)
+    _get_backend().update_user(user_key, updates)
 
 
 def set_chat_state(user_key: str, state: Optional[str]) -> None:
-    backend.set_chat_state(user_key, state)
+    _get_backend().set_chat_state(user_key, state)
 
 
 def get_chat_state(user_key: str) -> Optional[str]:
-    return backend.get_chat_state(user_key)
+    return _get_backend().get_chat_state(user_key)
 
 
 def list_watchlist(user_key: str) -> List[Dict]:
-    return backend.list_watchlist(user_key)
+    return _get_backend().list_watchlist(user_key)
 
 
 def get_watch_item(user_key: str, symbol: str) -> Optional[Dict]:
-    return backend.get_watch_item(user_key, symbol)
+    return _get_backend().get_watch_item(user_key, symbol)
 
 
 def add_watch_item(user_key: str, symbol: str, **settings) -> bool:
-    return backend.add_watch_item(user_key, symbol, **settings)
+    return _get_backend().add_watch_item(user_key, symbol, **settings)
 
 
 def delete_watch_item(user_key: str, symbol: str) -> bool:
-    return backend.delete_watch_item(user_key, symbol)
+    return _get_backend().delete_watch_item(user_key, symbol)
 
 
 def update_watch_item(user_key: str, symbol: str, **fields) -> bool:
-    return backend.update_watch_item(user_key, symbol, **fields)
+    return _get_backend().update_watch_item(user_key, symbol, **fields)
 
 
 def count_watchlist(user_key: str) -> int:
-    return backend.count_watchlist(user_key)
+    return _get_backend().count_watchlist(user_key)
 
 
 def get_schedule(user_key: str) -> Optional[Dict]:
-    return backend.get_schedule(user_key)
+    return _get_backend().get_schedule(user_key)
 
 
 def upsert_schedule(user_key: str, **fields) -> None:
-    backend.upsert_schedule(user_key, **fields)
+    _get_backend().upsert_schedule(user_key, **fields)
 
 
 def list_active_schedules(alert_time: str) -> List[Dict]:
-    return backend.list_active_schedules(alert_time)
+    return _get_backend().list_active_schedules(alert_time)
 
 
 def get_valid_snapshot(symbol: str) -> Optional[Dict]:
-    return backend.get_valid_snapshot(symbol)
+    return _get_backend().get_valid_snapshot(symbol)
 
 
 def save_snapshot(symbol: str, data: Dict, provider: str, ttl_minutes: int) -> str:
-    return backend.save_snapshot(symbol, data, provider, ttl_minutes)
+    return _get_backend().save_snapshot(symbol, data, provider, ttl_minutes)
 
 
 def save_source_documents(snapshot_id: str, sources: List[Dict]) -> None:
-    backend.save_source_documents(snapshot_id, sources)
+    _get_backend().save_source_documents(snapshot_id, sources)
 
 
 def get_financial_cache(symbol: str, max_age_hours: int) -> Optional[Dict]:
-    return backend.get_financial_cache(symbol, max_age_hours)
+    return _get_backend().get_financial_cache(symbol, max_age_hours)
 
 
 def save_financial_cache(symbol: str, data: Dict, source: str) -> None:
-    backend.save_financial_cache(symbol, data, source)
+    _get_backend().save_financial_cache(symbol, data, source)
 
 
 def create_analysis_run(user_key: Optional[str], symbol: str) -> str:
-    return backend.create_analysis_run(user_key, symbol)
+    return _get_backend().create_analysis_run(user_key, symbol)
 
 
 def update_analysis_run(run_id: str, **fields) -> None:
-    backend.update_analysis_run(run_id, **fields)
+    _get_backend().update_analysis_run(run_id, **fields)
 
 
 def add_agent_output(run_id: str, agent_name: str, output_json: str) -> None:
-    backend.add_agent_output(run_id, agent_name, output_json)
+    _get_backend().add_agent_output(run_id, agent_name, output_json)
 
 
 def get_delivery(idempotency_key: str) -> Optional[Dict]:
-    return backend.get_delivery(idempotency_key)
+    return _get_backend().get_delivery(idempotency_key)
 
 
 def upsert_delivery(idempotency_key: str, user_key: str, status: str,
                     error_message: Optional[str] = None) -> None:
-    backend.upsert_delivery(idempotency_key, user_key, status, error_message)
+    _get_backend().upsert_delivery(idempotency_key, user_key, status, error_message)
 
 
 def get_global_stock_info(symbol: str) -> Optional[Dict]:
-    return backend.get_global_stock_info(symbol)
+    return _get_backend().get_global_stock_info(symbol)
 
 
 def save_global_stock_info(symbol: str, **fields) -> None:
-    backend.save_global_stock_info(symbol, **fields)
+    _get_backend().save_global_stock_info(symbol, **fields)
 
 
 def prune_global_stock_info(max_age_hours: int) -> int:
-    return backend.prune_global_stock_info(max_age_hours)
+    return _get_backend().prune_global_stock_info(max_age_hours)
 
 
 def backend_name() -> str:
-    return 'firestore' if isinstance(backend, FirestoreBackend) else 'memory'
+    return 'firestore' if isinstance(_get_backend(), FirestoreBackend) else 'memory'
