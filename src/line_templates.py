@@ -92,8 +92,13 @@ def get_watchlist_carousel(stocks):
 
     list_items = []
     for stock in stocks:
-        symbol = stock.symbol
-        company = getattr(stock, 'company_name', symbol) or symbol
+        # Accept both dicts (store layer) and legacy ORM objects
+        if isinstance(stock, dict):
+            symbol = stock.get('symbol', '')
+            company = stock.get('company_name') or symbol
+        else:
+            symbol = stock.symbol
+            company = getattr(stock, 'company_name', symbol) or symbol
         
         # Row Item (Constructed in Code)
         row = {

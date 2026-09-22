@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
-from flask import Blueprint, abort, current_app, request
+from flask import Blueprint, abort, request
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import (
@@ -14,7 +14,7 @@ from linebot.models import (
 )
 
 from config import Config
-from database import Schedule, SessionLocal, User, Watchlist
+import store
 from line_templates import (
     get_add_stock_confirm_flex,
     get_global_setting_flex,
@@ -27,30 +27,6 @@ from tasks.queue import enqueue_report
 line_webhook_bp = Blueprint('line_webhook', __name__)
 line_bot_api = LineBotApi(Config.LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(Config.LINE_CHANNEL_SECRET)
-
-def get_or_create_user(line_user_id: str):
-    db = SessionLocal()
-    user = db.query(User).filter(User.line_user_id == line_user_id).first()
-    if not user:
-        user = User(line_user_id=line_user_id)
-        db.add(user)
-        db.commit()
-    return user, db
-
-
-def set_chat_state(line_user_id: str, db, state: str | None) -> None:
-    """Persist chat state on the user row so state survives instance restarts
-    and is shared across Cloud Run instances."""
-    user = db.query(User).filter(User.line_user_id == line_user_id).first()
-    if user is None:
-        return
-    user.chat_state = state
-    db.commit()
-
-
-def get_chat_state(line_user_id: str, db) -> str | None:
-    user = db.query(User).filter(User.line_user_id == line_user_id).first()
-    return user.chat_state if user else None
 
 
 # --- Background processing: the webhook must return 200 within seconds ---
@@ -75,24 +51,19 @@ def _push(line_user_id: str, messages) -> None:
         print(f"[Push Error] {exc}")
 
 
-def _process_add_stocks(line_user_id: str, user_pk, symbols: list[str]) -> None:
+def _process_add_stocks(line_user_id: str, symbols: list[str]) -> None:
     confirm_flexes: list = []
     duplicate_list: list = []
-    db = SessionLocal()
-    try:
-        for symbol in symbols:
-            found_symbol, price = check_stock_exists(symbol)
-            if found_symbol and price:
-                exists = db.query(Watchlist).filter_by(user_id=user_pk, symbol=found_symbol).first()
-                if exists:
-                    duplicate_list.append(found_symbol)
-                else:
-                    flex_content = get_add_stock_confirm_flex(found_symbol, found_symbol, price)
-                    if flex_content and 'contents' in flex_content:
-                        confirm_flexes.append(flex_content['contents'])
-        db.commit()
-    finally:
-        db.close()
+    for symbol in symbols:
+        found_symbol, price = check_stock_exists(symbol)
+        if not (found_symbol and price):
+            continue
+        if store.get_watch_item(line_user_id, found_symbol):
+            duplicate_list.append(found_symbol)
+        else:
+            flex_content = get_add_stock_confirm_flex(found_symbol, found_symbol, price)
+            if flex_content and 'contents' in flex_content:
+                confirm_flexes.append(flex_content['contents'])
 
     msgs = []
     if duplicate_list:
@@ -112,11 +83,7 @@ def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
     from data.market_snapshot_service import MarketSnapshotService
     from reporting.line_report_renderer import LineReportRenderer
 
-    db = SessionLocal()
-    try:
-        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-    finally:
-        db.close()
+    snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     brief = analyze_news(snapshot, profile=profile)
     brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
     _push(line_user_id, FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble))
@@ -125,11 +92,7 @@ def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
 def _process_why(line_user_id: str, symbol: str) -> None:
     from data.market_snapshot_service import MarketSnapshotService
 
-    db = SessionLocal()
-    try:
-        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-    finally:
-        db.close()
+    snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     reasons_text = f"💡 เหตุผลเชิงลึกสำหรับ {symbol}:\n"
     for k, v in snapshot.technicals.items():
         reasons_text += f"- {k}: {v}\n"
@@ -140,16 +103,12 @@ def _process_financials(line_user_id: str, symbol: str) -> None:
     from data.financials_service import FinancialsService
     from data.market_snapshot_service import MarketSnapshotService
 
-    fin_data = None
-    db = SessionLocal()
+    snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     try:
-        snapshot, _ = MarketSnapshotService(db_session=db).get_or_collect(symbol)
-        try:
-            fin_data = FinancialsService().get_financials(symbol, db=db)
-        except Exception as exc:
-            print(f'[Financials] unavailable for {symbol}: {exc}')
-    finally:
-        db.close()
+        fin_data = FinancialsService().get_financials(symbol)
+    except Exception as exc:
+        print(f'[Financials] unavailable for {symbol}: {exc}')
+        fin_data = None
 
     fin_text = (
         f"📊 ข้อมูลทางการเงิน {symbol}:\n"
@@ -222,9 +181,8 @@ def handle_message(event):
     user_id = event.source.user_id
 
     if text == "เพิ่มรายชื่อหุ้น":
-        user, db = get_or_create_user(user_id)
-        set_chat_state(user_id, db, "ADD_STOCK")
-        db.close()
+        store.get_or_create_user(user_id)
+        store.set_chat_state(user_id, "ADD_STOCK")
         line_bot_api.reply_message(
             event.reply_token,
             TextSendMessage(text="พิมพ์ชื่อหุ้นที่ต้องการเพิ่ม (เช่น PTT NVDA) หรือพิมพ์หลายตัวด้วยการเว้นวรรค"),
@@ -233,24 +191,21 @@ def handle_message(event):
 
     menu_keywords = ["ตั้งเวลา", "แสดงผล", "รายการหุ้น", "ตั้งค่า", "ผลงาน", "Setting", "Watcher"]
     if any(k in text for k in menu_keywords):
-        user, db = get_or_create_user(user_id)
-        set_chat_state(user_id, db, None)
-        db.close()
+        store.get_or_create_user(user_id)
+        store.set_chat_state(user_id, None)
         return
 
-    user, db = get_or_create_user(user_id)
-    current_state = get_chat_state(user_id, db)
+    store.get_or_create_user(user_id)
+    current_state = store.get_chat_state(user_id)
     if current_state == "ADD_STOCK":
         potential_stocks = [s.upper() for s in text.split() if 2 <= len(s.upper()) <= 10]
-        db.commit()
-        set_chat_state(user_id, db, None)
-        db.close()
+        store.set_chat_state(user_id, None)
         if not potential_stocks:
             _quick_reply(event, f"ไม่พบชื่อหุ้นที่ถูกต้อง: {text}")
             return
         _quick_reply(event, f"กำลังตรวจสอบ {len(potential_stocks)} หุ้น... สักครู่ครับ")
         # Heavy: yfinance lookups — run in background, deliver via push_message
-        _BACKGROUND.submit(_process_add_stocks, user_id, user.id, potential_stocks)
+        _BACKGROUND.submit(_process_add_stocks, user_id, potential_stocks)
         return
     else:
         try:
@@ -267,7 +222,7 @@ def handle_postback(event):
 
     data = event.postback.data or ""
     user_id = event.source.user_id
-    user, db = get_or_create_user(user_id)
+    user = store.get_or_create_user(user_id)
 
     params = {}
     for part in data.split('&'):
@@ -281,17 +236,13 @@ def handle_postback(event):
     try:
         # --- Add Stock ---
         if action == 'add_stock' and symbol:
-            count = db.query(Watchlist).filter_by(user_id=user.id).count()
-            if count >= 10:
+            if store.count_watchlist(user_id) >= 10:
                 line_bot_api.reply_message(
                     event.reply_token,
                     TextSendMessage(text="เพิ่มได้สูงสุด 10 หุ้น กรุณาลบหุ้นบางตัวออกก่อนครับ"),
                 )
                 return
-            exists = db.query(Watchlist).filter_by(user_id=user.id, symbol=symbol).first()
-            if not exists:
-                db.add(Watchlist(user_id=user.id, symbol=symbol))
-                db.commit()
+            if store.add_watch_item(user_id, symbol):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"ยืนยันเพิ่ม {symbol} เข้า Watchlist แล้ว"))
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"{symbol} อยู่ใน Watchlist แล้ว"))
@@ -340,10 +291,7 @@ def handle_postback(event):
             )
 
         elif action in ('delete_stock', 'delete') and symbol:
-            item = db.query(Watchlist).filter_by(user_id=user.id, symbol=symbol).first()
-            if item:
-                db.delete(item)
-                db.commit()
+            if store.delete_watch_item(user_id, symbol):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"ลบ {symbol} ออกจาก Watchlist แล้ว"))
             else:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ไม่พบรายการที่จะลบ"))
@@ -378,12 +326,11 @@ def handle_postback(event):
                 }
                 final_val = val_map.get(val_key, val_key.capitalize())
                 if setting_type == 'strategy':
-                    user.core_strategy = final_val
+                    store.update_user(user_id, {'core_strategy': final_val})
                 elif setting_type == 'goal':
-                    user.investment_goal = final_val
+                    store.update_user(user_id, {'investment_goal': final_val})
                 elif setting_type == 'risk':
-                    user.risk_appetite = final_val
-                db.commit()
+                    store.update_user(user_id, {'risk_appetite': final_val})
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✓ บันทึกการตั้งค่า {setting_type.capitalize()} = {final_val}"))
 
         elif 'stock' in action and symbol:
@@ -397,15 +344,16 @@ def handle_postback(event):
                     'low': 'Low', 'high': 'High',
                 }
                 final_val = val_map.get(val_key, val_key.capitalize())
-                wl_item = db.query(Watchlist).filter_by(user_id=user.id, symbol=symbol).first()
+                wl_item = store.get_watch_item(user_id, symbol)
                 if wl_item:
+                    updates = {}
                     if setting_type == 'strategy':
-                        wl_item.strategy = final_val
+                        updates['strategy'] = final_val
                     elif setting_type == 'goal':
-                        wl_item.goal = final_val
+                        updates['goal'] = final_val
                     elif setting_type == 'risk':
-                        wl_item.risk = final_val
-                    db.commit()
+                        updates['risk'] = final_val
+                    store.update_watch_item(user_id, symbol, **updates)
                     line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"✓ บันทึก {symbol} {setting_type.capitalize()} = {final_val}"))
 
         # --- Schedule ---
@@ -422,25 +370,16 @@ def handle_postback(event):
                     dt = dt + timedelta(hours=1)
                 final_time = dt.replace(minute=0, second=0).strftime("%H:%M")
 
-                sched = db.query(Schedule).filter_by(user_id=user.id).first()
-                if not sched:
-                    sched = Schedule(user_id=user.id)
-                    db.add(sched)
-                sched.alert_time = final_time
-                sched.is_active = True
-                db.commit()
+                store.upsert_schedule(user_id, alert_time=final_time, is_active=True)
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"ตั้งเวลาแจ้งเตือนรายวัน: {final_time}"))
 
         elif action == 'reset_time':
-            sched = db.query(Schedule).filter_by(user_id=user.id).first()
-            if sched:
-                sched.is_active = False
-                db.commit()
+            store.upsert_schedule(user_id, is_active=False)
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ปิดการแจ้งเตือนแล้ว"))
 
         # --- View Watchlist ---
         elif action == 'view_watchlist':
-            items = db.query(Watchlist).filter_by(user_id=user.id).all()
+            items = store.list_watchlist(user_id)
             if not items:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="Watchlist ของคุณว่างเปล่า"))
             else:
@@ -458,9 +397,9 @@ def handle_postback(event):
             _BACKGROUND.submit(
                 _process_news, user_id, symbol,
                 {
-                    'core_strategy': user.core_strategy,
-                    'investment_goal': user.investment_goal,
-                    'risk_appetite': user.risk_appetite,
+                    'core_strategy': user.get('core_strategy'),
+                    'investment_goal': user.get('investment_goal'),
+                    'risk_appetite': user.get('risk_appetite'),
                 },
             )
 
@@ -470,11 +409,11 @@ def handle_postback(event):
 
         elif action in ('get_report', 'refresh'):
             target_symbol = symbol if action == 'refresh' else None
-            items = (
-                db.query(Watchlist).filter_by(user_id=user.id, symbol=target_symbol).all()
-                if target_symbol
-                else db.query(Watchlist).filter_by(user_id=user.id).all()
-            )
+            if target_symbol:
+                item = store.get_watch_item(user_id, target_symbol)
+                items = [item] if item else []
+            else:
+                items = store.list_watchlist(user_id)
 
             if not items:
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ไม่มีหุ้นในรายการ"))
@@ -486,22 +425,22 @@ def handle_postback(event):
             )
 
             user_settings_snapshot = {
-                'core_strategy': user.core_strategy,
-                'investment_goal': user.investment_goal,
-                'risk_appetite': user.risk_appetite,
-                'report_format': user.report_format,
+                'core_strategy': user.get('core_strategy'),
+                'investment_goal': user.get('investment_goal'),
+                'risk_appetite': user.get('risk_appetite'),
+                'report_format': user.get('report_format'),
             }
             safe_items = [
                 {
-                    'symbol': item.symbol,
-                    'strategy': item.strategy,
-                    'goal': item.goal,
-                    'risk': item.risk,
-                    'report_format': item.report_format,
+                    'symbol': item['symbol'],
+                    'strategy': item.get('strategy'),
+                    'goal': item.get('goal'),
+                    'risk': item.get('risk'),
+                    'report_format': item.get('report_format'),
                 }
                 for item in items
             ]
-            enqueue_report(user.id, user_id, safe_items, user_settings_snapshot)
+            enqueue_report(user_id, user_id, safe_items, user_settings_snapshot)
 
         elif action == 'our_products':
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="รอติดตามผลงานเร็วๆนี้"))
@@ -512,5 +451,3 @@ def handle_postback(event):
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="! เกิดข้อผิดพลาดในการประมวลผล"))
         except Exception:
             pass
-    finally:
-        db.close()

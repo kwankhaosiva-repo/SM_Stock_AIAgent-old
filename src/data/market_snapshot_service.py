@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from config import Config
-from database import MarketSnapshot, SessionLocal, SourceDocument
+import store
 from models.analysis_models import MarketSnapshotData, SourceItem
 
 from .providers import (
@@ -38,7 +38,6 @@ class MarketSnapshotService:
         self._thai_provider = ThaiMarketDataProvider()
         self._settrade_provider = SettradeOpenDataProvider()
         self._relay_provider = RelayMarketDataProvider()
-        self.db = db_session
 
     def _resolve_market_provider(self, symbol: str) -> MarketDataProvider:
         """Single-provider resolution kept for explicit injection/tests.
@@ -85,70 +84,46 @@ class MarketSnapshotService:
             f'All market data providers failed for {symbol}: ' + ' | '.join(errors)
         )
 
-    def get_or_collect(self, symbol: str) -> Tuple[MarketSnapshotData, Optional[int]]:
+    def get_or_collect(self, symbol: str) -> Tuple[MarketSnapshotData, Optional[str]]:
         symbol = symbol.upper().strip()
-        owns_session = self.db is None
-        db = self.db or SessionLocal()
+        # 1. Check for valid cached snapshot reusable across all users
+        cached = store.get_valid_snapshot(symbol)
+        if cached:
+            snapshot = MarketSnapshotData.from_dict(cached['data'])
+            collected_at = cached['collected_at']
+            if collected_at.tzinfo is None:
+                collected_at = collected_at.replace(tzinfo=timezone.utc)
+            snapshot.freshness_minutes = max(
+                0, int((datetime.now(timezone.utc) - collected_at).total_seconds() // 60)
+            )
+            return snapshot, cached['id']
+
+        # 2. Collect fresh data via the anti-block provider chain
+        raw, provider_name = self._fetch_with_fallback(symbol)
+
+        # Collect news sources
+        news_sources = []
         try:
-            now = _utcnow_naive()
-            # 1. Check for valid cached snapshot reusable across all users
-            cached = (
-                db.query(MarketSnapshot)
-                .filter(MarketSnapshot.symbol == symbol, MarketSnapshot.expires_at > now)
-                .order_by(MarketSnapshot.collected_at.desc())
-                .first()
-            )
-            if cached:
-                snapshot = self._from_record(cached)
-                snapshot.freshness_minutes = max(
-                    0, int((now - cached.collected_at).total_seconds() // 60)
-                )
-                return snapshot, cached.id
+            news_sources = self._news_provider.fetch_news(symbol)
+        except Exception as exc:
+            print(f"[SnapshotService] News fetch warning for {symbol}: {exc}")
 
-            # 2. Collect fresh data via the anti-block provider chain
-            raw, provider_name = self._fetch_with_fallback(symbol)
+        snapshot = self._build_snapshot(symbol, raw, news_sources, provider_name)
 
-            # Collect news sources
-            news_sources = []
-            try:
-                news_sources = self._news_provider.fetch_news(symbol)
-            except Exception as exc:
-                print(f"[SnapshotService] News fetch warning for {symbol}: {exc}")
-
-            snapshot = self._build_snapshot(symbol, raw, news_sources, provider_name)
-            
-            # Save to database
-            ttl_minutes = getattr(Config, 'MARKET_SNAPSHOT_TTL_MINUTES', 15)
-            collected_at_naive = _utcnow_naive()
-            record = MarketSnapshot(
-                symbol=symbol,
-                provider=provider_name,
-                data_json=json.dumps(snapshot.to_dict(), default=str),
-                collected_at=collected_at_naive,
-                expires_at=collected_at_naive + timedelta(minutes=ttl_minutes),
-            )
-            db.add(record)
-            db.flush()
-
-            for source in snapshot.sources:
-                db.add(
-                    SourceDocument(
-                        snapshot_id=record.id,
-                        title=source.title,
-                        url=source.url,
-                        published_at=source.published_at,
-                        source_type=source.source_type,
-                    )
-                )
-            db.commit()
-            return snapshot, record.id
-        finally:
-            if owns_session:
-                db.close()
-
-    def _from_record(self, record: MarketSnapshot) -> MarketSnapshotData:
-        payload = json.loads(record.data_json)
-        return MarketSnapshotData.from_dict(payload)
+        ttl_minutes = getattr(Config, 'MARKET_SNAPSHOT_TTL_MINUTES', 15)
+        snap_id = store.save_snapshot(
+            symbol, snapshot.to_dict(), provider_name, ttl_minutes,
+        )
+        store.save_source_documents(snap_id, [
+            {
+                'title': source.title,
+                'url': source.url,
+                'published_at': source.published_at,
+                'source_type': source.source_type,
+            }
+            for source in snapshot.sources
+        ])
+        return snapshot, snap_id
 
     def _build_snapshot(
         self,

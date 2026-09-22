@@ -106,27 +106,24 @@ class FinancialsFallbackTests(unittest.TestCase):
         self.assertIsNone(data)
 
     def test_cache_roundtrip(self):
+        import store
         from data.financials_service import FinancialsService
-        from database import Base, SessionLocal, engine
-        Base.metadata.create_all(bind=engine)
-        db = SessionLocal()
-        try:
-            db.query(FinancialsServiceCacheStub).delete()
-        except Exception:
-            pass
-        finally:
-            db.close()
-
+        # Fresh in-memory backend — cache read starts empty
+        store.backend = store.MemoryBackend()
         service = FinancialsService()
         payload = {'balance_sheet': [('สินทรัพย์รวม', '1.00 พันล้าน')], 'income': [], 'period': '2025'}
-        with patch.object(service, '_write_cache'), \
-             patch.object(service, '_read_cache', return_value={**payload, 'cached': True}):
-            result = service.get_financials('TEST_SYM', db=db)
-        self.assertTrue(result['cached'])
+        with patch.object(service, '_fetch_yahoo', return_value=(payload, 'yahoo')), \
+             patch.object(service, '_fetch_fmp', return_value=(None, 'fmp')):
+            result = service.get_financials('TEST_SYM')
+        self.assertFalse(result['cached'])
         self.assertEqual(result['balance_sheet'][0][0], 'สินทรัพย์รวม')
 
+        # Second call must be served from the store cache without refetching
+        with patch.object(service, '_fetch_yahoo', side_effect=AssertionError('should use cache')):
+            result2 = service.get_financials('TEST_SYM')
+        self.assertTrue(result2['cached'])
+        self.assertEqual(result2['source'], 'yahoo')
 
-from database import FinancialStatementCache as FinancialsServiceCacheStub  # noqa: E402
 
 
 if __name__ == '__main__':

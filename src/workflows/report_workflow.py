@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import operator
-import threading
 from datetime import datetime, timezone
 from typing import Annotated, Dict, List, Optional, TypedDict
 
@@ -15,7 +14,7 @@ from agents import (
     RiskEvidenceReviewer,
 )
 from data.market_snapshot_service import MarketSnapshotService
-from database import AgentOutput, AnalysisRun, SessionLocal
+import store
 from llm_service import LLMService
 from models.analysis_models import AdviceOutput, AgentFinding, MarketSnapshotData, ReviewResult
 
@@ -54,9 +53,8 @@ class ReportWorkflow:
               -> (revise, budget left) -> revise_advice -> review  (reflection loop)
     """
 
-    def __init__(self, snapshot_service=None, llm=None, db_session=None):
-        self.db = db_session
-        self.snapshot_service = snapshot_service or MarketSnapshotService(db_session=db_session)
+    def __init__(self, snapshot_service=None, llm=None):
+        self.snapshot_service = snapshot_service or MarketSnapshotService()
         shared_llm = llm or LLMService()
         self.news_agent = NewsContextAgent(shared_llm)
         self.analysis_agent = FundamentalTechnicalAgent(shared_llm)
@@ -65,45 +63,22 @@ class ReportWorkflow:
 
     # ------------------------------------------------------------------ graph
 
-    def _build_graph(self, db, run_id: int):
-        """Build the StateGraph with DB/session bindings captured in node closures.
+    def _build_graph(self, run_id: str):
+        """Build the StateGraph with the run id captured in node closures.
 
-        LangGraph runs parallel nodes on worker threads, so every node writes
-        through its own short-lived session guarded by a lock. This avoids
-        SQLite deferred-transaction rowid collisions between concurrent writes.
-        SessionLocal is a scoped_session (thread-local registry), so nodes use
-        the raw session_factory to always get a fresh, independent session and
-        never close the caller's session.
+        LangGraph runs parallel nodes on worker threads; audit writes go
+        through the store layer which is safe for concurrent use.
         """
-        write_lock = threading.Lock()
-        session_factory = SessionLocal.session_factory
 
         def save_output(name: str, payload: Dict) -> None:
-            with write_lock:
-                session = session_factory()
-                try:
-                    session.add(
-                        AgentOutput(
-                            analysis_run_id=run_id,
-                            agent_name=name,
-                            output_json=json.dumps(payload, ensure_ascii=False, default=str),
-                        )
-                    )
-                    session.commit()
-                finally:
-                    session.close()
+            store.add_agent_output(
+                run_id, name,
+                json.dumps(payload, ensure_ascii=False, default=str),
+            )
 
         def collect_snapshot(state: ReportState) -> Dict:
             snapshot, snapshot_id = self.snapshot_service.get_or_collect(state['symbol'])
-            with write_lock:
-                session = session_factory()
-                try:
-                    run = session.query(AnalysisRun).filter(AnalysisRun.id == run_id).first()
-                    if run is not None and run.snapshot_id is None:
-                        run.snapshot_id = snapshot_id
-                        session.commit()
-                finally:
-                    session.close()
+            store.update_analysis_run(run_id, snapshot_id=snapshot_id)
             return {'snapshot': snapshot}
 
         def run_news(state: ReportState) -> Dict:
@@ -183,19 +158,11 @@ class ReportWorkflow:
 
     # -------------------------------------------------------------------- run
 
-    def run(self, symbol: str, profile: Dict[str, str], user_id: Optional[int] = None) -> Dict:
-        owns_session = self.db is None
-        db = self.db or SessionLocal()
-        if self.snapshot_service.db is None:
-            self.snapshot_service.db = db
-
-        run = AnalysisRun(user_id=user_id, symbol=symbol.upper(), status='running')
-        db.add(run)
-        db.commit()
-        run_id = run.id
+    def run(self, symbol: str, profile: Dict[str, str], user_key: Optional[str] = None) -> Dict:
+        run_id = store.create_analysis_run(user_key, symbol.upper())
 
         try:
-            graph = self._build_graph(db, run_id)
+            graph = self._build_graph(run_id)
             final_state: ReportState = graph.invoke(
                 {'symbol': symbol.upper(), 'profile': profile, 'revision_count': 0}
             )
@@ -206,20 +173,21 @@ class ReportWorkflow:
                 final_state['snapshot'], final_advice, review.status, review.notes
             )
 
-            run.status = 'completed' if review.status.lower() != 'reject' else 'review_rejected'
-            run.result_json = json.dumps(result, ensure_ascii=False, default=str)
-            run.completed_at = _utcnow_naive()
-            db.commit()
+            store.update_analysis_run(
+                run_id,
+                status='completed' if review.status.lower() != 'reject' else 'review_rejected',
+                result=json.dumps(result, ensure_ascii=False, default=str),
+                completed_at=_utcnow_naive(),
+            )
             return result
         except Exception as exc:
-            run.status = 'failed'
-            run.error_message = str(exc)[:1000]
-            run.completed_at = _utcnow_naive()
-            db.commit()
+            store.update_analysis_run(
+                run_id,
+                status='failed',
+                error_message=str(exc)[:1000],
+                completed_at=_utcnow_naive(),
+            )
             raise
-        finally:
-            if owns_session:
-                db.close()
 
     @staticmethod
     def _to_result(snapshot: MarketSnapshotData, advice: AdviceOutput, review_status: str, review_notes) -> Dict:

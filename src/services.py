@@ -7,7 +7,8 @@ from workflows import ReportWorkflow
 
 
 def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=None):
-    """Generate reports through the auditable workflow while retaining old callers."""
+    """Generate reports through the auditable workflow while retaining old callers.
+    `user_id` is the store user key (LINE user id or 'web:<uuid>')."""
     bubbles = []
     workflow = ReportWorkflow()
     settings = user_settings or {}
@@ -21,7 +22,7 @@ def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=N
             'report_format': getattr(item, 'report_format', None) or settings.get('report_format', 'Short'),
         }
         try:
-            report = workflow.run(symbol, profile, user_id=user_id)
+            report = workflow.run(symbol, profile, user_key=str(user_id) if user_id else None)
             # Render using the rich LineReportRenderer
             bubble = LineReportRenderer.render_stock_card(report)
             bubbles.append(bubble)

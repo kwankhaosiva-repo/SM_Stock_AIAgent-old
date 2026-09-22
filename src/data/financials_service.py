@@ -15,7 +15,7 @@ from typing import Any, Dict, Optional
 import requests
 
 from config import Config
-from database import FinancialStatementCache, SessionLocal
+import store
 
 # Row keys we expose, in display order, with Thai labels.
 _BALANCE_ROWS = [
@@ -55,55 +55,28 @@ class FinancialsService:
 
     # ------------------------------------------------------------- public
 
-    def get_financials(self, symbol: str, db=None) -> Dict[str, Any]:
+    def get_financials(self, symbol: str) -> Dict[str, Any]:
         """Return {'balance_sheet': [(label_th, value_str), ...],
         'income': [...], 'periods': [...], 'source': str} or raises."""
-        owns_session = db is None
-        db = db or SessionLocal()
         clean = symbol.upper().strip()
-        try:
-            cached = self._read_cache(db, clean)
-            if cached:
-                return cached
-
-            data, source = self._fetch_yahoo(clean)
-            if data is None:
-                data, source = self._fetch_fmp(clean)
-            if data is None:
-                raise ValueError(f'No financial statements available for {clean}')
-
-            self._write_cache(db, clean, data, source)
+        cached = store.get_financial_cache(clean, self.CACHE_HOURS)
+        if cached:
+            data = dict(cached['data'])
+            data['source'] = cached['source']
+            data['cached'] = True
             return data
-        finally:
-            if owns_session:
-                db.close()
+
+        data, source = self._fetch_yahoo(clean)
+        if data is None:
+            data, source = self._fetch_fmp(clean)
+        if data is None:
+            raise ValueError(f'No financial statements available for {clean}')
+
+        data.setdefault('cached', False)
+        store.save_financial_cache(clean, data, source)
+        return data
 
     # -------------------------------------------------------------- cache
-
-    def _read_cache(self, db, symbol: str) -> Optional[Dict[str, Any]]:
-        cutoff = _utcnow_naive() - timedelta(hours=self.CACHE_HOURS)
-        record = (
-            db.query(FinancialStatementCache)
-            .filter(FinancialStatementCache.symbol == symbol,
-                    FinancialStatementCache.collected_at > cutoff)
-            .order_by(FinancialStatementCache.collected_at.desc())
-            .first()
-        )
-        if record is None:
-            return None
-        payload = json.loads(record.data_json)
-        payload['source'] = record.source
-        payload['cached'] = True
-        return payload
-
-    def _write_cache(self, db, symbol: str, data: Dict[str, Any], source: str) -> None:
-        db.add(FinancialStatementCache(
-            symbol=symbol,
-            data_json=json.dumps(data, ensure_ascii=False, default=str),
-            source=source,
-            collected_at=_utcnow_naive(),
-        ))
-        db.commit()
 
     # ----------------------------------------------------------- providers
 

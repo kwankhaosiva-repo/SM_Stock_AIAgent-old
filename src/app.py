@@ -16,32 +16,6 @@ app.config.from_object(Config)
 app.register_blueprint(line_webhook_bp)
 app.register_blueprint(web_chat_bp)
 
-_db_initialized = False
-
-
-def ensure_db_initialized():
-    global _db_initialized
-    if not _db_initialized:
-        from database import Base, engine
-
-        try:
-            print("[INIT] Lazy initializing database...")
-            Base.metadata.create_all(bind=engine)
-            try:
-                from init_cache_db import Base as CacheBase
-            except ImportError:
-                from src.init_cache_db import Base as CacheBase
-            CacheBase.metadata.create_all(bind=engine)
-            _db_initialized = True
-            print("[INIT] Database initialization successful.")
-        except Exception as e:
-            print(f"[INIT] Database Init Warning: {e}")
-
-
-@app.before_request
-def before_request_hook():
-    ensure_db_initialized()
-
 
 @app.route("/health", methods=['GET'])
 def health():
@@ -59,6 +33,7 @@ def debug_config():
             return 'PLACEHOLDER/EMPTY'
         return 'SET'
 
+    import store
     from config import Config
     return {
         'LINE_CHANNEL_SECRET': status('LINE_CHANNEL_SECRET', 'YOUR_CHANNEL_SECRET'),
@@ -67,14 +42,14 @@ def debug_config():
         'GROQ_API_KEY': status('GROQ_API_KEY') or status('GROQ_API'),
         'MISTRAL_API_KEY': status('MISTRAL_API_KEY') or status('MISTRAL_API'),
         'OPENROUTER_API_KEY': status('OPENROUTER_API_KEY') or status('OPENROUTER_API'),
-        'DATABASE_URL': 'SET' if Config.DATABASE_URL.startswith('postgres') else 'LOCAL_SQLITE',
+        'DATA_BACKEND': store.backend_name(),
+        'FIRESTORE_DATABASE': os.environ.get('FIRESTORE_DATABASE', 'agent-stocks'),
     }, 200
 
 
 @app.route("/cron/trigger", methods=['GET', 'POST'])
 def cron_trigger():
     """Endpoint for Google Cloud Scheduler or HTTP cron to trigger hourly checks."""
-    ensure_db_initialized()
     print("[CRON] Triggered by Cloud Scheduler")
     from tasks.dispatcher import check_jobs
 
@@ -83,6 +58,5 @@ def cron_trigger():
 
 
 if __name__ == "__main__":
-    ensure_db_initialized()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

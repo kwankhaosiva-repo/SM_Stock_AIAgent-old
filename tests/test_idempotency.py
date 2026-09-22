@@ -1,32 +1,21 @@
 import os
 import sys
 import unittest
-from datetime import datetime
 from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from database import Base, ReportDelivery, SessionLocal, User, engine
+import store
 from tasks.worker import process_report_job
 
 
 class IdempotencyTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        Base.metadata.create_all(bind=engine)
-
     def setUp(self):
-        self.db = SessionLocal()
-        # Create test user if not exists
-        user = self.db.query(User).filter_by(line_user_id='U_TEST_USER').first()
-        if not user:
-            user = User(line_user_id='U_TEST_USER')
-            self.db.add(user)
-            self.db.commit()
-        self.user_id = user.id
+        # Fresh in-memory backend per test
+        store.backend = store.MemoryBackend()
 
     def tearDown(self):
-        self.db.close()
+        store.backend = store.MemoryBackend()
 
     @patch('tasks.worker.LineBotApi')
     @patch('tasks.worker.process_stock_list')
@@ -35,13 +24,10 @@ class IdempotencyTests(unittest.TestCase):
         mock_api_instance = mock_line_api.return_value
 
         request_id = 'test_request_key_123'
-
-        # Ensure no prior delivery
-        self.db.query(ReportDelivery).filter_by(idempotency_key=request_id).delete()
-        self.db.commit()
+        user_key = 'U_TEST_USER'
 
         payload = {
-            'user_id': self.user_id,
+            'user_id': user_key,
             'line_user_id': 'U_TEST_USER',
             'request_id': request_id,
             'items': [{'symbol': 'PTT.BK'}],
@@ -52,9 +38,9 @@ class IdempotencyTests(unittest.TestCase):
         process_report_job(payload)
         self.assertEqual(mock_api_instance.push_message.call_count, 1)
 
-        delivery = self.db.query(ReportDelivery).filter_by(idempotency_key=request_id).first()
+        delivery = store.get_delivery(request_id)
         self.assertIsNotNone(delivery)
-        self.assertEqual(delivery.status, 'sent')
+        self.assertEqual(delivery['status'], 'sent')
 
         # Second run with identical idempotency_key (retry or duplicate webhook):
         # Must be skipped and NOT call push_message again!

@@ -4,9 +4,9 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
+import store
 from data.market_snapshot_service import MarketSnapshotService
 from data.providers.base import MarketDataProvider, NewsDataProvider
-from database import AnalysisRun, Base, MarketSnapshot, SessionLocal, engine
 from models.analysis_models import SourceItem
 from workflows.report_workflow import ReportWorkflow
 
@@ -38,25 +38,18 @@ class MockNewsProvider(NewsDataProvider):
 
 
 class WorkflowAndCacheTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        Base.metadata.create_all(bind=engine)
-
     def setUp(self):
-        self.db = SessionLocal()
-        # Clean test snapshots
-        self.db.query(MarketSnapshot).filter(MarketSnapshot.symbol == 'MOCK_SYM').delete()
-        self.db.commit()
+        # Fresh in-memory backend per test — no external services needed
+        store.backend = store.MemoryBackend()
 
     def tearDown(self):
-        self.db.close()
+        store.backend = store.MemoryBackend()
 
     def test_snapshot_cache_reuse_across_users(self):
         mock_provider = MockDataProvider()
         service = MarketSnapshotService(
             market_provider=mock_provider,
             news_provider=MockNewsProvider(),
-            db_session=self.db,
         )
 
         # 1st User request: should call provider
@@ -76,22 +69,21 @@ class WorkflowAndCacheTests(unittest.TestCase):
         service = MarketSnapshotService(
             market_provider=mock_provider,
             news_provider=MockNewsProvider(),
-            db_session=self.db,
         )
-        workflow = ReportWorkflow(snapshot_service=service, db_session=self.db)
+        workflow = ReportWorkflow(snapshot_service=service)
 
         profile = {'core_strategy': 'Growth', 'investment_goal': 'Long'}
-        result = workflow.run('MOCK_SYM', profile, user_id=1)
+        result = workflow.run('MOCK_SYM', profile, user_key='test-user')
 
         self.assertEqual(result['symbol'], 'MOCK_SYM')
         self.assertIn(result['signal'], ('Positive', 'Neutral', 'Cautious'))
         self.assertIn('advice', result)
         self.assertIn('review_status', result)
 
-        # Verify AnalysisRun recorded in database
-        run_record = self.db.query(AnalysisRun).filter_by(symbol='MOCK_SYM').order_by(AnalysisRun.id.desc()).first()
-        self.assertIsNotNone(run_record)
-        self.assertEqual(run_record.status, 'completed')
+        # Verify agent outputs were persisted as audit records
+        self.assertGreater(len(store.backend.agent_outputs), 0)
+        run_records = list(store.backend.analysis_runs.values())
+        self.assertTrue(any(r['status'] == 'completed' and r['symbol'] == 'MOCK_SYM' for r in run_records))
 
 
 if __name__ == '__main__':
