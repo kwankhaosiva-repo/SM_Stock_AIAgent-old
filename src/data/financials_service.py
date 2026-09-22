@@ -32,6 +32,22 @@ _INCOME_ROWS = [
     ('Net Income', 'กำไรสุทธิ'),
     ('Basic EPS', 'กำไรต่อหุ้น (EPS)'),
 ]
+# Numeric keys kept alongside the display strings so the analysis layer can
+# compute ratios (D/E, margins, ROE) without parsing formatted Thai text.
+_RAW_BALANCE_KEYS = {
+    'Total Assets': 'total_assets',
+    'Total Liabilities Net Minority Interest': 'total_liabilities',
+    'Stockholders Equity': 'equity',
+    'Cash And Cash Equivalents': 'cash',
+    'Total Debt': 'total_debt',
+    'Retained Earnings': 'retained_earnings',
+}
+_RAW_INCOME_KEYS = {
+    'Total Revenue': 'revenue',
+    'Operating Income': 'operating_income',
+    'Net Income': 'net_income',
+    'Basic EPS': 'eps',
+}
 
 
 def _utcnow_naive() -> datetime:
@@ -90,20 +106,35 @@ class FinancialsService:
             if bs is None or getattr(bs, 'empty', True):
                 return None, 'yahoo'
 
-            def extract(frame, rows):
+            raw: Dict[str, float] = {}
+
+            def extract(frame, rows, raw_map):
                 out = []
                 latest = frame.columns[0] if len(frame.columns) else None
                 if latest is None:
                     return out
                 for key, label in rows:
                     if key in frame.index:
-                        out.append((label, _fmt_baht(frame.loc[key, latest])))
+                        value = frame.loc[key, latest]
+                        out.append((label, _fmt_baht(value)))
+                        raw_key = raw_map.get(key)
+                        if raw_key:
+                            try:
+                                fval = float(value)
+                                if fval == fval:  # skip NaN
+                                    raw[raw_key] = fval
+                            except (TypeError, ValueError):
+                                pass
                 return out
 
             period = str(bs.columns[0])[:10] if len(bs.columns) else ''
             data = {
-                'balance_sheet': extract(bs, _BALANCE_ROWS),
-                'income': extract(inc, _INCOME_ROWS) if inc is not None and not getattr(inc, 'empty', True) else [],
+                'balance_sheet': extract(bs, _BALANCE_ROWS, _RAW_BALANCE_KEYS),
+                'income': (
+                    extract(inc, _INCOME_ROWS, _RAW_INCOME_KEYS)
+                    if inc is not None and not getattr(inc, 'empty', True) else []
+                ),
+                'raw': raw,
                 'period': period,
                 'cached': False,
             }
@@ -134,6 +165,21 @@ class FinancialsService:
                 if not isinstance(records, list) or not records:
                     continue
                 r = records[0]
+                raw: Dict[str, float] = {}
+                for src_key, raw_key in (
+                    ('totalAssets', 'total_assets'),
+                    ('totalLiabilities', 'total_liabilities'),
+                    ('totalStockholdersEquity', 'equity'),
+                    ('cashAndCashEquivalents', 'cash'),
+                    ('totalDebt', 'total_debt'),
+                    ('retainedEarnings', 'retained_earnings'),
+                ):
+                    try:
+                        fval = float(r.get(src_key))
+                        if fval == fval:
+                            raw[raw_key] = fval
+                    except (TypeError, ValueError):
+                        pass
                 data = {
                     'balance_sheet': [
                         ('สินทรัพย์รวม', _fmt_baht(r.get('totalAssets'))),
@@ -144,6 +190,7 @@ class FinancialsService:
                         ('กำไรสะสม', _fmt_baht(r.get('retainedEarnings'))),
                     ],
                     'income': [],
+                    'raw': raw,
                     'period': str(r.get('date') or ''),
                     'cached': False,
                 }

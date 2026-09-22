@@ -85,23 +85,98 @@ def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
 
     snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     brief = analyze_news(snapshot, profile=profile)
+    # Strip long URLs the AI may copy from sources — Google News redirects are huge.
+    import re as _re
+
+    def _strip_urls(value):
+        if isinstance(value, list):
+            return [_re.sub(r'https?://\S+', '', str(v)).strip() for v in value]
+        return _re.sub(r'https?://\S+', '', str(value)).strip()
+
+    brief['summary'] = _strip_urls(brief.get('summary') or '')
+    brief['news'] = _strip_urls(brief.get('news') or [])
+    brief['advice'] = _strip_urls(brief.get('advice') or [])
     brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
     _push(line_user_id, FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble))
 
 
 def _process_why(line_user_id: str, symbol: str) -> None:
+    """Deep-dive: WHY this signal — evidence with derivation, not raw dumps."""
+    from data.financials_service import FinancialsService
     from data.market_snapshot_service import MarketSnapshotService
+    from analysis.financial_ratios import compute_ratios, build_financial_reasoning
+    from analysis.indicators import infer_trend
 
     snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
-    reasons_text = f"💡 เหตุผลเชิงลึกสำหรับ {symbol}:\n"
-    for k, v in snapshot.technicals.items():
-        reasons_text += f"- {k}: {v}\n"
-    _push(line_user_id, TextSendMessage(text=reasons_text.strip()[:4900]))
+    tech = snapshot.technicals
+    trend = infer_trend(snapshot.price, tech)
+    support = tech.get('support')
+    resistance = tech.get('resistance')
+    rsi = tech.get('rsi')
+    sma20 = tech.get('sma20')
+    sma50 = tech.get('sma50')
+
+    evidence: list[str] = []
+    if support not in (None, '-', 'N/A') and resistance not in (None, '-', 'N/A'):
+        evidence.append(
+            f"📐 แนวรับ {support} / แนวต้าน {resistance} — มาจาก จุดต่ำสุด-สูงสุดของราคาย้อนหลัง 30 วันทำการ "
+            f"(swing low/high) ไม่ใช่การเดา หากราคาทะลุแนวต้านด้วย volume สูง มักต่อยอด หากหลุดแนวรับมักลงลึก"
+        )
+    if rsi not in (None, '-', 'N/A'):
+        try:
+            r = float(rsi)
+            stance = (
+                'เข้าเขต overbought (>65) ราคาอาจร้อนเกินไป ระวังย่อตัว'
+                if r >= 65 else
+                'เข้าเขต oversold (<35) อาจถูกขายล้นตลาด จังหวะเด้งมีโอกาส'
+                if r <= 35 else
+                'อยู่โซนกลาง (35-65) โมเมนตัมยังไม่บ่งชี้ทิศทางชัด'
+            )
+            evidence.append(f"📊 RSI(14) = {rsi} — {stance}")
+        except (TypeError, ValueError):
+            pass
+    try:
+        p = float(snapshot.price)
+        s20 = float(sma20) if sma20 not in (None, '-', 'N/A') else None
+        s50 = float(sma50) if sma50 not in (None, '-', 'N/A') else None
+        if s20 and s50:
+            if p > s20 > s50:
+                evidence.append(f"📈 ราคา {p:,.2f} > SMA20 {sma20} > SMA50 {sma50} — MA เรียงตัวขึ้น แนวโน้มระยะสั้นและกลางเป็นบวก")
+            elif p < s20 < s50:
+                evidence.append(f"📉 ราคา {p:,.2f} < SMA20 {sma20} < SMA50 {sma50} — MA เรียงตัวลง แนวโน้มยังอ่อน")
+            else:
+                evidence.append(f"➡️ ราคา {p:,.2f} กับ MA ({sma20}/{sma50}) ยังสลับกัน — อยู่ในช่วง sideway รอทิศทางชัด")
+    except (TypeError, ValueError):
+        pass
+
+    # Balance-sheet based reasons (works even without AI)
+    try:
+        fin = FinancialsService().get_financials(symbol)
+        raw = (fin or {}).get('raw') or {}
+        ratios = compute_ratios(raw)
+        evidence.extend(build_financial_reasoning(raw, ratios, snapshot.price))
+    except Exception as exc:
+        print(f'[Why] financials unavailable for {symbol}: {exc}')
+
+    verdict = {
+        'Positive': 'สถานะรวม: โทนบวก — ราคาอยู่เหนือเกณฑ์เทคนิคสำคัญ',
+        'Cautious': 'สถานะรวม: โทนระมัดระวัง — ราคาอ่อนแอกว่าเกณฑ์เทคนิค',
+    }.get(trend, 'สถานะรวม: เป็นกลาง — สัญญาณยังไม่ชี้ทิศทางชัด')
+
+    text = (
+        f"💡 เพราะอะไร? วิเคราะห์ {symbol} @ {snapshot.price:,.2f}\n\n"
+        + verdict + '\n\n'
+        + '\n\n'.join(evidence[:6])
+        + '\n\n⚠️ เป็นการวิเคราะห์จากข้อมูลเชิงประจักษ์ ไม่ใช่คำแนะนำลงทุน'
+    )
+    _push(line_user_id, TextSendMessage(text=text[:4900]))
 
 
 def _process_financials(line_user_id: str, symbol: str) -> None:
+    """Financial statements WITH interpretation — ratios, formulas, implications."""
     from data.financials_service import FinancialsService
     from data.market_snapshot_service import MarketSnapshotService
+    from analysis.financial_ratios import compute_ratios, build_financial_reasoning
 
     snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     try:
@@ -113,12 +188,16 @@ def _process_financials(line_user_id: str, symbol: str) -> None:
     fin_text = (
         f"📊 ข้อมูลทางการเงิน {symbol}:\n"
         f"- ราคา: {snapshot.price:,.2f}\n"
-        f"- P/E: {snapshot.pe_ratio or 'N/A'}\n"
-        f"- Dividend Yield: {snapshot.div_yield or 'N/A'}%\n"
-        f"- RSI(14): {snapshot.technicals.get('rsi', 'N/A')}\n"
-        f"- SMA50: {snapshot.technicals.get('sma50', 'N/A')}\n"
-        f"- แนวรับ/แนวต้าน: {snapshot.technicals.get('support', '-')}/{snapshot.technicals.get('resistance', '-')}\n\n"
+        f"- P/E: {snapshot.pe_ratio or 'N/A'} (ราคา ÷ กำไรต่อหุ้น = จ่ายกี่เท่าของกำไรต่อปี)\n"
+        f"- Dividend Yield: {snapshot.div_yield or 'N/A'}% (เงินปันผล ÷ ราคาหุ้น)\n\n"
     )
+    raw = (fin_data or {}).get('raw') or {}
+    if raw:
+        ratios = compute_ratios(raw)
+        fin_text += "🧮 วิเคราะห์อัตราส่วน (จากงบล่าสุด):\n"
+        for line in build_financial_reasoning(raw, ratios, snapshot.price):
+            fin_text += f"• {line}\n"
+        fin_text += "\n"
     if fin_data and fin_data.get('balance_sheet'):
         fin_text += f"🏦 งบดุล (งวด {fin_data.get('period') or 'ล่าสุด'}):\n"
         for label, value in fin_data['balance_sheet'][:6]:
@@ -130,7 +209,7 @@ def _process_financials(line_user_id: str, symbol: str) -> None:
     if fin_data:
         fin_text += f"\n(แหล่งข้อมูล: {fin_data.get('source')})"
     else:
-        fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้"
+        fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้ — แสดงเฉพาะข้อมูลเทคนิคชั่วคราว"
     _push(line_user_id, TextSendMessage(text=fin_text[:4900]))
 
 

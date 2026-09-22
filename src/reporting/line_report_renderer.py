@@ -310,6 +310,14 @@ class LineReportRenderer:
         provider = str(brief.get('provider') or 'ai')
         provider_label = 'โหมดสำรอง (ตัวเลขล้วน)' if provider == 'fallback' else f'AI: {provider}'
 
+        news_count = brief.get('news_count')
+        cited = brief.get('news_cited') or []
+        news_header = f"🗞 ข่าวย้ายตลาด"
+        if news_count:
+            news_header += f" (รวม {news_count} ข่าว)"
+        if cited:
+            news_header += f" — ใช้ข่าวหมายเลข {', '.join(f'[{c}]' for c in cited[:5])}"
+
         news_rows = [
             {
                 "type": "box",
@@ -386,7 +394,7 @@ class LineReportRenderer:
             },
             {"type": "separator", "margin": "md"},
             # Top news
-            {"type": "text", "text": "🗞 ข่าวย้ายตลาด:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {"type": "text", "text": news_header, "size": "xs", "weight": "bold", "color": "#374151", "margin": "md", "wrap": True},
             {
                 "type": "box",
                 "layout": "vertical",
