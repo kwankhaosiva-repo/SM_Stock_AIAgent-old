@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 
 from linebot import LineBotApi
-from linebot.models import FlexSendMessage
+from linebot.models import FlexSendMessage, TextSendMessage
 
 from config import Config
 import store
@@ -93,6 +93,12 @@ def process_report_job(payload: Dict[str, Any]):
         except TypeError:
             # Older installed SDK fallback without retry_key kwarg
             api.push_message(line_user_id, message)
+        except Exception as flex_exc:
+            # Last-resort fallback: an invalid Flex payload must never leave
+            # the user with silence — degrade to a plain-text summary.
+            print(f"[Worker] Flex push failed ({flex_exc}); falling back to text")
+            fallback = LineReportRenderer.render_daily_digest_text(summary_text, collected_reports)
+            api.push_message(line_user_id, TextSendMessage(text=fallback[:4900]))
 
         store.upsert_delivery(request_id, user_key, 'sent')
         print(f"[Worker] Report successfully delivered to {line_user_id} (key: {request_id})")

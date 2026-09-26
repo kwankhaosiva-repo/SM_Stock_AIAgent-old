@@ -211,7 +211,7 @@ class LineReportRenderer:
                 "type": "box",
                 "layout": "vertical",
                 "margin": "sm",
-                "spacing": "xxs",
+                "spacing": "xs",
                 "contents": reason_sections,
             },
             # Key Risk section
@@ -638,3 +638,25 @@ class LineReportRenderer:
                 ],
             },
         }
+
+    @staticmethod
+    def render_daily_digest_text(summary_text: str, collected_reports: List[Dict[str, Any]]) -> str:
+        """Plain-text digest used as the last-resort fallback when the Flex
+        payload is rejected by the LINE API — the user must never get silence."""
+        lines = [f"📊 {summary_text}", ""]
+        for r in collected_reports[:3]:
+            sym = str(r.get('symbol', '')).upper()
+            price = r.get('metrics', {}).get('price', '-')
+            outlook = r.get('signal') or r.get('advice', {}).get('outlook') or 'Neutral'
+            lines.append(f"• {sym} @ {price} — {outlook}")
+            reason = (
+                ((r.get('reason_categories') or {}).get('news')
+                 or (r.get('reason_categories') or {}).get('financials')
+                 or (r.get('reason_categories') or {}).get('stats')
+                 or [''])[0]
+            )
+            if reason:
+                lines.append(f"  ↳ {reason}")
+        lines.append("")
+        lines.append("(แสดงแบบข้อความธรรมดา — การ์ดเต็มใช้ไม่ได้ชั่วคราว)")
+        return "\n".join(lines)
