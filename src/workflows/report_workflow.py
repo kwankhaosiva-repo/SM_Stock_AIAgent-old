@@ -190,8 +190,44 @@ class ReportWorkflow:
             raise
 
     @staticmethod
+    def _categorized_reasons_from_list(raw_reasons) -> Dict[str, List[str]]:
+        """Tag a flat reason list into news / financials / stats buckets."""
+        raw = list(raw_reasons or [])
+        if not raw:
+            return {'news': [], 'financials': [], 'stats': []}
+        news_kw = ('ข่าว', 'ประกาศ', 'คดี', 'เข้าซื้อ', 'ควบ', 'น้ำมัน', 'เฟด', 'fed',
+                   'ดอกเบี้ย', 'ภาษี', 'guidance', 'สั่งซื้อ', 'ส่งออก', 'มหภาค')
+        fin_kw = ('งบ', 'กำไร', 'รายได้', 'หนี้', 'ทุน', 'ปันผล', 'dividend', 'roa',
+                  'roe', 'หนี้สิน', 'กระแสเงินสด', 'de', 'asset', 'equity')
+        news, fin, stats = [], [], []
+        for reason in raw:
+            text = str(reason).lower()
+            if any(k in text for k in news_kw):
+                news.append(str(reason))
+            elif any(k in text for k in fin_kw):
+                fin.append(str(reason))
+            else:
+                stats.append(str(reason))
+        return {'news': news[:2], 'financials': fin[:2], 'stats': stats[:2]}
+
+    @classmethod
+    def _categorized_reasons(cls, snapshot: MarketSnapshotData, advice: AdviceOutput) -> Dict[str, List[str]]:
+        """Split evidence into news / financials / accounting-stats buckets."""
+        return cls._categorized_reasons_from_list(advice.reasons or [])
+
+    @staticmethod
     def _to_result(snapshot: MarketSnapshotData, advice: AdviceOutput, review_status: str, review_notes) -> Dict:
+        from analysis.news_cleaning import clean_headline
+
         outlook = advice.outlook if advice.outlook in ('Positive', 'Neutral', 'Cautious') else 'Neutral'
+        categorized = ReportWorkflow._categorized_reasons(snapshot, advice)
+        clean_titles: List[str] = []
+        seen_titles = set()
+        for source in snapshot.sources:
+            title = clean_headline(source.title)
+            if title and title.lower() not in seen_titles:
+                seen_titles.add(title.lower())
+                clean_titles.append(title)
         return {
             'symbol': snapshot.symbol,
             'signal': outlook,
@@ -204,7 +240,8 @@ class ReportWorkflow:
                 'technicals': snapshot.technicals,
             },
             'history': snapshot.history,
-            'news': [source.title for source in snapshot.sources],
+            'news': clean_titles,
+            'reason_categories': categorized,
             'technicals': snapshot.technicals,
             'advice': advice.to_dict(),
             'review_status': review_status,

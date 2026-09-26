@@ -49,6 +49,7 @@ class MemoryBackend:
     """Thread-safe in-memory backend. Data lives only for the process lifetime."""
 
     def __init__(self):
+        self.is_memory = True
         self.lock = threading.RLock()
         self.users: Dict[str, Dict] = {}
         self.watchlist: Dict[tuple, Dict] = {}
@@ -252,6 +253,8 @@ class FirestoreBackend:
     """Firestore backend using Application Default Credentials (Cloud Run ready)."""
 
     def __init__(self, client):
+        self.is_memory = False
+        self.db = client
         self.client = client
 
     # users
@@ -435,6 +438,51 @@ class FirestoreBackend:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------- actions
+
+def try_acquire_action_lock(user_key: str, action: str, symbol: str = '', ttl_seconds: int = 30) -> bool:
+    """Debounce rapid repeated button presses (Firestore backend only).
+
+    A lock document per user+action+symbol; it expires by timestamp so a
+    stuck lock can never block a user for more than ttl_seconds.
+    Returns True when acquired (this press is new) and False on a dupe press.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    backend = _get_backend()
+    if getattr(backend, 'is_memory', False):
+        return True  # debounce is a production concern; tests stay lock-free
+    now = datetime.now(timezone.utc)
+    doc_id = f"{user_key}_{action}_{symbol}".replace('/', '_')
+    try:
+        ref = backend.db.collection('action_locks').document(doc_id)
+        snap = ref.get()
+        if snap.exists:
+            expires_raw = (snap.to_dict() or {}).get('expires_at')
+            expires_at = None
+            if isinstance(expires_raw, datetime):
+                expires_at = expires_raw if expires_raw.tzinfo else expires_raw.replace(tzinfo=timezone.utc)
+            elif expires_raw:
+                try:
+                    expires_at = datetime.fromisoformat(str(expires_raw)).replace(tzinfo=timezone.utc)
+                except ValueError:
+                    expires_at = None
+            if expires_at and expires_at > now:
+                return False  # still locked — duplicate press
+        ref.set({
+            'user_id': user_key,
+            'action': action,
+            'symbol': symbol,
+            'expires_at': now + timedelta(seconds=ttl_seconds),
+            'acquired_at': now,
+        })
+        return True
+    except Exception as exc:
+        # Lock store failing must never block the actual action.
+        print(f"[Store] action_lock warning: {exc}")
+        return True
+
+
 # Backend selection — Firestore on GCP, memory fallback for dev/tests
 # ---------------------------------------------------------------------------
 

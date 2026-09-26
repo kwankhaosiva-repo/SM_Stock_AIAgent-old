@@ -82,20 +82,15 @@ def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
     from analysis.news_analysis import analyze_news
     from data.market_snapshot_service import MarketSnapshotService
     from reporting.line_report_renderer import LineReportRenderer
+    from reporting.news_detail_renderer import render_news_detail_card
 
     snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     brief = analyze_news(snapshot, profile=profile)
-    # Strip long URLs the AI may copy from sources — Google News redirects are huge.
-    import re as _re
-
-    def _strip_urls(value):
-        if isinstance(value, list):
-            return [_re.sub(r'https?://\S+', '', str(v)).strip() for v in value]
-        return _re.sub(r'https?://\S+', '', str(value)).strip()
-
-    brief['summary'] = _strip_urls(brief.get('summary') or '')
-    brief['news'] = _strip_urls(brief.get('news') or [])
-    brief['advice'] = _strip_urls(brief.get('advice') or [])
+    # Deep-view: ranked headlines with clickable sources; flash/summary text
+    # stays URL-free because clean_headline already stripped links upstream.
+    detail_bubble = render_news_detail_card(snapshot.symbol, brief)
+    _push(line_user_id, FlexSendMessage(alt_text=f"ข่าว {snapshot.symbol} เรียงตามน้ำหนักกระทบ", contents=detail_bubble))
+    # Follow with the synthesized brief card (flash summary + reasons).
     brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
     _push(line_user_id, FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble))
 
@@ -467,24 +462,36 @@ def handle_postback(event):
                     line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="Watchlist", contents=flex['contents']))
 
         # --- Report Actions (Rule 8 postback buttons: Why?, News, Financials, Refresh, Schedule) ---
-        elif action == 'why' and symbol:
-            _quick_reply(event, f"กำลังวิเคราะห์ {symbol}... สักครู่ครับ")
-            _BACKGROUND.submit(_process_why, user_id, symbol)
+        elif action in ('why', 'news', 'financials') and symbol:
+            # Debounce: rapid repeated presses within 30s are ignored so the
+            # same analysis never runs twice and users never get duplicates.
+            if not store.try_acquire_action_lock(user_id, action, symbol, ttl_seconds=30):
+                _quick_reply(event, f"⏳ กำลังประมวลผล {symbol} อยู่แล้ว รอผลลัพธ์สักครู่ครับ")
+                return
+            labels = {
+                'why': f"กำลังวิเคราะห์ {symbol}... สักครู่ครับ",
+                'news': f"📡 กำลังคัดกรองและจัดอันดับข่าว {symbol}... สักครู่ครับ",
+                'financials': f"กำลังดึงงบการเงิน {symbol}... สักครู่ครับ",
+            }
+            _quick_reply(event, labels[action])
+            handlers = {'why': _process_why, 'news': _process_news, 'financials': _process_financials}
+            if action == 'news':
+                _BACKGROUND.submit(
+                    _process_news, user_id, symbol,
+                    {
+                        'core_strategy': user.get('core_strategy'),
+                        'investment_goal': user.get('investment_goal'),
+                        'risk_appetite': user.get('risk_appetite'),
+                    },
+                )
+            else:
+                _BACKGROUND.submit(handlers[action], user_id, symbol)
 
-        elif action == 'news' and symbol:
-            _quick_reply(event, f"กำลังวิเคราะห์ข่าว {symbol}... สักครู่ครับ 📡")
-            _BACKGROUND.submit(
-                _process_news, user_id, symbol,
-                {
-                    'core_strategy': user.get('core_strategy'),
-                    'investment_goal': user.get('investment_goal'),
-                    'risk_appetite': user.get('risk_appetite'),
-                },
-            )
-
-        elif action == 'financials' and symbol:
-            _quick_reply(event, f"กำลังดึงงบการเงิน {symbol}... สักครู่ครับ")
-            _BACKGROUND.submit(_process_financials, user_id, symbol)
+        elif action in ('get_report', 'refresh'):
+            # Debounce per symbol (refresh) or per user (full watchlist pull).
+            if not store.try_acquire_action_lock(user_id, action, symbol, ttl_seconds=30):
+                _quick_reply(event, "⏳ มีรายการที่กำลังประมวลผลอยู่แล้ว รอสักครู่ครับ")
+                return
 
         elif action in ('get_report', 'refresh'):
             target_symbol = symbol if action == 'refresh' else None

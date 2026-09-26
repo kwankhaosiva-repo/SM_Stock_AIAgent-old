@@ -1,48 +1,79 @@
-# AIAgent LineStock - Evidence-Based Stock Research Assistant
+# AIAgent LineStock — Evidence-Based Stock Research Assistant
 
-A production-ready, multi-agent LINE stock research assistant powered by **Google Gemini** (`google-genai` / structured JSON) and deterministic Python financial services. It provides personalized, evidence-grounded decision support with interactive LINE Flex Message reports.
+A production-ready, multi-agent stock research assistant on **LINE / Web / Discord**, powered by a **resilient free-tier LLM provider chain** (automatic failover with context forwarding) and deterministic Python financial services. Reports are delivered as interactive LINE Flex Message cards, grounded in real market data — never hallucinated numbers.
 
 ---
 
 ## 📌 Table of Contents
 1. [Overview & Architecture](#-overview--architecture)
-2. [Multi-Agent System & Reasoning Souls](#-multi-agent-system--reasoning-souls)
-3. [Source Structure](#-source-structure)
-4. [Tech Stack & Dependencies](#-tech-stack--dependencies)
-5. [Database Schema & Migrations](#-database-schema--migrations)
-6. [Queue, Dispatcher & Workers](#-queue-dispatcher--workers)
-7. [Environment Variables](#-environment-variables)
-8. [Local Development & Testing](#-local-development--testing)
-9. [Deployment Guide](#-deployment-guide)
+2. [LLM Provider Chain (Free-Tier Failover)](#-llm-provider-chain-free-tier-failover)
+3. [Multi-Agent System & Reasoning Souls](#-multi-agent-system--reasoning-souls)
+4. [Analysis Layer — Evidence-Based, Not LLM Math](#-analysis-layer--evidence-based-not-llm-math)
+5. [Source Structure](#-source-structure)
+6. [Data Layer — Firestore Store](#-data-layer--firestore-store)
+7. [Market Data Providers](#-market-data-providers)
+8. [Queue, Dispatcher & Workers](#-queue-dispatcher--workers)
+9. [Channels](#-channels)
+10. [Tech Stack & Dependencies](#-tech-stack--dependencies)
+11. [Environment Variables](#-environment-variables)
+12. [Local Development & Testing](#-local-development--testing)
+13. [Deployment Guide (GCP Cloud Run + Secret Manager)](#-deployment-guide-gcp-cloud-run--secret-manager)
 
 ---
 
 ## 🎯 Overview & Architecture
 
-Users register stocks to a personal watchlist, configure their investment style, and receive structured reports based on fresh price data, precomputed technical indicators, company fundamentals, relevant news, and global market context.
+Users register stocks to a personal watchlist, configure their investment style, and receive structured reports based on fresh price data, precomputed technical indicators, company fundamentals, and ranked news with provenance.
 
-The system emphasizes **decision support**, never giving raw `BUY`/`SELL` orders or guaranteed return promises.
+The system emphasizes **decision support** — never raw `BUY`/`SELL` orders or guaranteed-return promises.
 
 ```mermaid
 flowchart LR
-  A[LINE / User Request] --> B[Webhook API: line_webhook.py]
-  B --> C[Job Queue: RQ / Redis]
+  A[LINE / Web / Discord] --> B[Webhook API: line_webhook.py]
+  B --> C[Job Queue: RQ/Redis or local executor]
   D[Schedule Dispatcher: dispatcher.py] --> C
   C --> E[Market Snapshot Service]
-  E --> F[(Market Snapshot DB Cache)]
+  E --> F[(Firestore: snapshot cache 15-min TTL)]
   F --> G[News Context Agent]
   F --> H[Fundamental + Technical Agent]
   G --> I[Personalized Advice Agent]
   H --> I
   I --> J[Risk & Evidence Reviewer Gate]
-  J --> K[LINE Report Renderer]
-  K --> L[LINE Push Message]
+  J --> K[LINE Flex / Web HTML Renderers]
+  K --> L[Push Message / Chat Reply]
 ```
 
-### Deterministic Foundation
-- **No LLM Math**: Technical indicators (RSI-14, SMA-20, SMA-50, 30-day volatility, support/resistance, 52-week high/low) are computed deterministically in Python using `pandas`.
-- **Chart Service**: 30-day price trend charts are generated deterministically via QuickChart.
-- **Snapshot Caching**: Market snapshots are cached in the database (`market_snapshots`) with a 15-minute TTL, making them reusable across multiple users following the same stock without redundant external API calls.
+### Key UX guarantees
+- **Instant ack + press debounce**: every analysis button replies with a "⏳ processing" ack immediately; repeated presses within 30 s per user/action/symbol are locked (no duplicate AI calls, no duplicate cards).
+- **News detail on demand**: the summary card shows 2-line telegraph-style headlines; the **News** button opens a full card ranked by market impact, per-news verdict, "why it matters" line, and a tappable **original-source button** (URLs come only from the digest, never LLM-invented).
+- **Three-bucket reasons**: every recommendation separates evidence into 📰 News / 🏦 Financial statements / 📊 Statistics (P/E, RSI, support-resistance with derivation).
+
+---
+
+## 🔌 LLM Provider Chain (Free-Tier Failover)
+
+No single-provider lock-in. Providers run in a configurable order; on failure (429, 404, timeout, missing key) the **same prompt + context is forwarded** to the next provider automatically.
+
+Default order (Gemini direct API currently disabled due to billing):
+
+```
+groq → cerebras → mistral → cloudflare → openrouter → unorouter → router9 → ollama
+```
+
+| Provider | Default model | Notes |
+|---|---|---|
+| Groq | `llama-3.1-8b-instant` | fastest free tier |
+| Cerebras | `llama-3.3-70b` | |
+| Mistral | `mistral-small-latest` | |
+| Cloudflare Workers AI | `meta/llama-3.1-8b-instruct` | |
+| OpenRouter | `deepseek/deepseek-chat-v3.1:free` | one key, many free models |
+| UnoRouter | `google/gemini-3-flash:free` | OpenRouter-style slugs |
+| 9Router | `auto` | local proxy (localhost:20128) — dev only |
+| Ollama | `mistral-small3.2:24b` | fully local, offline dev/test |
+
+**404 self-healing**: when a configured model no longer exists, the provider fetches the live `/models` list and picks the closest available model, then caches it — stale model names in env vars no longer break the chain.
+
+Structured JSON tasks (news analysis, agent outputs) validate against Pydantic schemas; invalid responses fall through to the next provider or a deterministic fallback.
 
 ---
 
@@ -50,18 +81,24 @@ flowchart LR
 
 The workflow orchestrates four specialist agents with version-controlled Markdown system instructions (`src/agents/souls/`):
 
-1. **`NewsContextAgent`** (`news_context.md`):
-   - Extracts and filters company and macro news.
-   - Retains provenance (title, URL, published time, relevance).
-2. **`FundamentalTechnicalAgent`** (`fundamental_technical.md`):
-   - Interprets precomputed price, P/E, dividend yield, and technical indicators.
-   - Never hallucinates prices or recalculates indicators.
-3. **`PersonalizedAdviceAgent`** (`personalized_advice.md`):
-   - Synthesizes findings with user strategy, goal, and risk appetite.
-   - Produces 3 evidence-based reasons, tangible risks, and next items to watch with a measured outlook (`Positive`, `Neutral`, `Cautious`).
-4. **`RiskEvidenceReviewer`** (`risk_evidence_reviewer.md`):
-   - Independent compliance gatekeeper.
-   - Scrutinizes advice for unsupported claims, stale data (>15 min), or forbidden words (e.g. "การันตี", "กำไรแน่นอน"). Returns `approve`, `revise`, or `reject`.
+1. **`NewsContextAgent`** (`news_context.md`): filters and ranks company + macro news; retains provenance (title, source, URL, published time).
+2. **`FundamentalTechnicalAgent`** (`fundamental_technical.md`): interprets precomputed price, P/E, dividend yield, and technical indicators; never hallucinates prices or recalculates indicators.
+3. **`PersonalizedAdviceAgent`** (`personalized_advice.md`): synthesizes findings with user strategy, goal, and risk appetite into three-bucket evidence-based reasons, tangible risks, and items to watch.
+4. **`RiskEvidenceReviewer`** (`risk_evidence_reviewer.md`): independent compliance gatekeeper — rejects unsupported claims, stale data (>15 min), or forbidden words ("การันตี", "กำไรแน่นอน"). Returns `approve` / `revise` / `reject`.
+
+---
+
+## 🧮 Analysis Layer — Evidence-Based, Not LLM Math
+
+| Module | Responsibility |
+|---|---|
+| `analysis/indicators.py` | RSI-14, SMA-20/50, 30-day volatility, support/resistance (30-day swing low/high), 52-week range — pure pandas |
+| `analysis/chart_service.py` | 30-day sparkline charts via QuickChart |
+| `analysis/financial_ratios.py` | D/E, net margin, ROE, P/B computed from raw balance-sheet values, each rendered with its formula in Thai |
+| `analysis/news_cleaning.py` | strips `$undefined$`/URL garbage from headlines, cross-publisher dedupe, impact scoring & ranking |
+| `analysis/news_analysis.py` | numbered-source digest → single LLM synthesis pass with citation contract ([1], [2]…), tech/macro linkage, Buy/Hold/Sell reasoning |
+
+The LLM only **interprets**; every number originates from deterministic Python code or real provider data.
 
 ---
 
@@ -70,157 +107,238 @@ The workflow orchestrates four specialist agents with version-controlled Markdow
 ```text
 src/
   api/
-    line_webhook.py              # Webhook endpoint & event routing blueprint
+    line_webhook.py              # LINE webhook: routing, acks, debounce locks, handlers
+    web_chat.py                  # Web chat endpoint (HTML briefs)
   data/
     providers/
-      base.py                    # MarketDataProvider & NewsDataProvider interfaces
-      yahoo_provider.py          # Yahoo Finance provider for quotes, history, metrics
-      thai_market_provider.py    # SET equities (.BK) provider with Settrade / Yahoo fallback
-      news_provider.py           # Company & macro news scraper with provenance
-      legacy_provider.py         # Adapter for backwards compatibility
-    market_snapshot_service.py   # Snapshot collection, cache reuse, and source tracking
+      base.py                    # MarketDataProvider & NewsDataProvider interfaces + skip/failover
+      yahoo_provider.py          # Global quotes, history, financials
+      thai_market_provider.py    # SET equities (.BK)
+      settrade_open_provider.py  # Official SET feed (Thai-only, skip if unconfigured)
+      news_provider.py           # Company & macro news with provenance
+      relay_provider.py          # Local data relay via Cloudflare Tunnel
+      legacy_provider.py         # Backwards-compatibility adapter
+    market_snapshot_service.py   # Snapshot collection, 15-min cache reuse, source tracking
+    financials_service.py        # Balance-sheet fetch + raw values for ratio math
   analysis/
-    indicators.py                # Precomputed RSI, SMA, volatility, support/resistance
-    chart_service.py             # Deterministic QuickChart sparkline generator
+    indicators.py                # Deterministic technical indicators
+    financial_ratios.py          # Ratio computation with Thai formula explanations
+    news_cleaning.py             # Headline cleaning, dedupe, impact ranking
+    news_analysis.py             # Numbered-source AI synthesis with citations
+    chart_service.py             # QuickChart sparklines
   agents/
-    contracts.py                 # Pydantic schema exports
-    runner.py                    # Base agent runner with JSON validation & fallbacks
-    news_context_agent.py
-    fundamental_technical_agent.py
-    personalized_advice_agent.py
-    risk_evidence_reviewer.py
-    souls/                       # Markdown system prompts
-      news_context.md
-      fundamental_technical.md
-      personalized_advice.md
-      risk_evidence_reviewer.md
+    contracts.py                 # Pydantic schemas
+    runner.py                    # Agent runner: JSON validation & fallbacks
+    news_context_agent.py / fundamental_technical_agent.py /
+    personalized_advice_agent.py / risk_evidence_reviewer.py
+    souls/                       # Markdown system prompts per agent
   workflows/
-    report_workflow.py           # Parallel agent orchestration & DB audit logging
+    report_workflow.py           # Parallel orchestration + audit logging
   tasks/
-    dispatcher.py                # Cron scheduler & schedule claim dispatcher
-    queue.py                     # RQ / Redis queue with local development executor
-    worker.py                    # RQ report job processor & idempotent push delivery
+    dispatcher.py                # Cron scheduler & schedule claim
+    queue.py                     # RQ/Redis queue with local thread-pool fallback
+    worker.py                    # Report job processor, idempotent push (UUID retry key)
   reporting/
-    line_report_renderer.py      # Stock Report Card & Daily Digest Flex builders
+    line_report_renderer.py      # Stock card / Daily digest / Market Brief flex builders
+    news_detail_renderer.py      # Impact-ranked news card with source buttons
+    web_chat_renderer.py         # Web chat HTML renderers
   models/
     analysis_models.py           # Pydantic v2 data models
+  store.py                       # Data layer: Firestore backend + in-memory dev backend
+  llm_providers.py               # Provider chain router with failover + 404 self-heal
+  llm_service.py / llm_test_cli.py
+  chat_service.py                # Cross-channel command dispatch (LINE/Web/Discord)
+  discord_bot.py                 # Discord bot entrypoint
+  line_templates.py              # Rich menu / carousel templates
+  global_stock_helper.py / thai_stock_helper.py
+  data_relay_agent.py            # Local machine data relay (Cloudflare Tunnel)
   app.py                         # Flask application server
-  config.py                      # Multi-environment configuration
-  database.py                    # SQLAlchemy models & session factory
-  worker.py                      # CLI entrypoint for background worker or scheduler
+  config.py                      # Configuration (env parsing, secret-file support)
+  worker.py                      # CLI entrypoint for scheduler / RQ worker
 ```
 
 ---
 
-## 🗄 Database Schema & Migrations
+## 🗄 Data Layer — Firestore Store
 
-The relational database supports both **SQLite** (local development) and **PostgreSQL** (production).
+All persistence runs through a single store layer (`src/store.py`) with two swappable backends:
 
-### Tables:
-- `users`: Profile settings (investment goal, strategy, risk appetite).
-- `watchlist`: Stocks tracked by users.
-- `schedules`: Scheduled alert delivery times.
-- `market_snapshots`: Immutable cached market data snapshots.
-- `source_documents`: Provenance articles/news associated with snapshots.
-- `analysis_runs`: Audit trail of every workflow run and status.
-- `agent_outputs`: Structured JSON outputs from each agent stage.
-- `report_deliveries`: Idempotent delivery records preventing duplicate push notifications.
+- **Firestore** (production): database `agent-stocks`, authenticated via Application Default Credentials on Cloud Run — no extra secrets needed. Lazy-initialized so cold starts stay fast.
+- **In-memory** (local dev/test): automatic fallback when Firestore is unavailable; force with `DATA_BACKEND=memory`.
 
-### Alembic Migrations:
-```bash
-# Check current migration revision
-alembic current
+Collections:
 
-# Run pending migrations
-alembic upgrade head
+| Collection | Purpose |
+|---|---|
+| `users` (+ watchlist subcollection) | Profile, investment style, tracked stocks |
+| `schedules` | Scheduled alert delivery times |
+| `market_snapshots` | Cached market data (15-min TTL, shared across users) |
+| `financial_cache` | Balance-sheet cache (24-h TTL) |
+| `analysis_runs` / `agent_outputs` | Audit trail of every workflow run & agent stage |
+| `report_deliveries` | Idempotency keys — no duplicate pushes |
+| `global_stock_info` | Cached global stock metadata |
+| action locks | 30-s press-debounce per user/action/symbol |
+
+> Migrated from Supabase/PostgreSQL + SQLAlchemy in 2026-09; no ORM, no migrations needed.
+
+---
+
+## 🌐 Market Data Providers
+
+Market data also runs as a **provider chain** (Thai-first):
+
 ```
+settrade_open (Thai .BK, official feed) → yahoo → local relay → skip
+```
+
+- **Settrade Open API**: official Thai feed; skipped gracefully when credentials are absent. Sandbox accessible only from Thai IPs (since 16 Sep 2026).
+- **Yahoo Finance**: global quotes, history, financials.
+- **FMP**: balance-sheet fallback when Yahoo blocks.
+- **Local data relay**: run a fetcher on your home machine and expose it via Cloudflare Tunnel (`DATA_RELAY_URL`) to bypass cloud-IP blocks (e.g., Finnhub on GCP).
+- News: Google News RSS with cleaning/dedup/ranking (`news_cleaning.py`).
 
 ---
 
 ## 🔄 Queue, Dispatcher & Workers
 
-### 1. Webhook (Immediate Response)
-When a user requests a report or sets a schedule, the webhook confirms immediately and enqueues a background job.
+1. **Webhook** — acks instantly, enqueues background job.
+2. **Job queue** — Redis + RQ in production; automatic local thread-pool executor in dev.
+3. **Idempotency** — every push carries a canonical-UUID `X-Line-Retry-Key`; `report_deliveries` blocks duplicate deliveries across webhook redelivery or job retries.
+4. **Dispatcher** — cron-style schedule scanner (`src/worker.py`) claims due schedules and enqueues digest jobs.
 
-### 2. Job Queue (RQ / Redis)
-- Production uses Redis (`REDIS_URL`) and RQ worker processes.
-- Local development automatically falls back to an internal thread pool if Redis is not configured.
+---
 
-### 3. Idempotency & LINE Retry Key
-- Every report delivery stores an `idempotency_key` in `report_deliveries`.
-- Duplicate webhook deliveries or retried jobs are recognized and will not send duplicate push messages.
-- LINE push messages pass `retry_key=request_id`.
+## 💬 Channels
+
+| Channel | Entrypoint | Notes |
+|---|---|---|
+| **LINE** | `src/app.py` (`/callback`) | Flex cards, rich menu, postbacks, debounce locks |
+| **Web chat** | `src/api/web_chat.py` | HTML-rendered briefs/reports |
+| **Discord** | `src/discord_bot.py` | runs separately (`python src/discord_bot.py`) |
+
+Shared command layer: `src/chat_service.py` dispatches identical commands across all three channels.
+
+---
+
+## 🧰 Tech Stack & Dependencies
+
+| Layer | Technology |
+|---|---|
+| Language | Python 3.11 |
+| Web | Flask 3 + gunicorn |
+| Messaging | line-bot-sdk, discord.py |
+| LLM | google-genai + OpenAI-compatible chain (Groq, Cerebras, Mistral, Cloudflare, OpenRouter, UnoRouter, 9Router, Ollama) |
+| Data | yfinance, pandas, requests |
+| Persistence | google-cloud-firestore (prod) / in-memory (dev) |
+| Queue | redis + rq (optional) |
+| Scheduler | apscheduler |
+| Validation | pydantic v2 |
+| Orchestration (roadmap) | langgraph |
+| Deploy | Docker → GCP Cloud Run, Secret Manager, scale-to-zero |
 
 ---
 
 ## ⚙ Environment Variables
 
-Configure `.env` in the project root:
+Copy `.env_example` → `.env` and fill in only what you use — **empty key = provider skipped**:
 
 ```env
-# Database
-DATABASE_URL=postgresql://user:password@host:5432/dbname  # Or leave empty for local SQLite app.db
+# ==== LLM Providers (any subset) ====
+GROQ_API_KEY=
+CEREBRAS_API_KEY=
+MISTRAL_API_KEY=
+CLOUDFLARE_API_KEY=          # + CLOUDFLARE_ACCOUNT_ID
+OPENROUTER_API_KEY=
+UNOROUTER_API_KEY=           # hosted gateway (unorouter.com)
+ROUTER9_BASE_URL=            # local proxy, dev only
+OLLAMA_BASE_URL=http://localhost:11434   # local dev only
+LLM_PROVIDER_ORDER=groq,cerebras,mistral,cloudflare,openrouter,unorouter,router9,ollama
 
-# LINE Messaging API
-LINE_CHANNEL_ACCESS_TOKEN=your_line_channel_access_token
-LINE_CHANNEL_SECRET=your_line_channel_secret
+# ==== Market data ====
+FINNHUB_API_KEY=
+TWELVE_DATA_API_KEY=
+SETTRADE_APP_ID=             # optional official Thai feed
+SETTRADE_APP_SECRET=
+FMP_API_KEY=                 # balance-sheet fallback
+DATA_RELAY_URL=              # home-machine relay via Cloudflare Tunnel
+DATA_RELAY_TOKEN=
 
-# LLM (Google Gemini)
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL_NAME=gemini-flash-latest
+# ==== LINE API ====
+LINE_CHANNEL_SECRET=
+LINE_CHANNEL_ACCESS_TOKEN=
 
-# Background Queue & Cache
-REDIS_URL=redis://localhost:6379/0                       # Optional locally; required in prod
-QUEUE_NAME=reports
-REPORT_QUEUE_MODE=auto                                    # auto, rq, or local
-MARKET_SNAPSHOT_TTL_MINUTES=15                           # Snapshot cache TTL
+# ==== Discord (optional) ====
+DISCORD_BOT_TOKEN=
 
-# Scheduler
-SCHEDULER_TIMEZONE=Asia/Bangkok
+# ==== Database ====
+# empty = in-memory local backend; Firestore is used automatically on GCP
+DATABASE_URL=
+REDIS_URL=
 ```
+
+**Secret-file mode (GCP)**: the app can parse an entire `.env` file mounted as a single secret. Set env var `ENV_FILE` (or `ENV_STOCKS`) to the file content — lines are parsed as `KEY=VALUE`, comments skipped, quotes stripped. See `src/config.py`.
 
 ---
 
 ## 🧪 Local Development & Testing
 
-### 1. Install Dependencies
 ```bash
+# 1. Install dependencies (Python 3.11 recommended)
 pip install -r requirements.txt
-```
 
-### 2. Initialize Database
-```bash
-python src/database.py
-```
+# 2. Run test suite (in-memory backend, no network needed)
+DATA_BACKEND=memory python -m unittest discover -s tests -v
 
-### 3. Run Test Suite
-```bash
-python -m unittest discover -s tests -v
-```
-
-### 4. Run Application Server
-```bash
+# 3. Run application server (webhook + web chat)
 python src/app.py
-```
 
-### 5. Run Background Scheduler / RQ Worker
-```bash
-# Run Schedule Dispatcher (cron alert checks):
-python src/worker.py
+# 4. Run scheduler / RQ worker
+python src/worker.py        # schedule dispatcher
+python src/worker.py rq     # standalone RQ worker (needs Redis)
 
-# Run Standalone RQ Worker (requires Redis):
-python src/worker.py rq
+# 5. Discord bot (optional)
+python src/discord_bot.py
+
+# 6. Test LLM provider chain locally (e.g., Ollama)
+python src/llm_test_cli.py
+
+# 7. Optional: expose local server for LINE webhook testing
+cloudflared tunnel --url http://localhost:8080
+# → paste the URL into LINE Console → Webhook URL
 ```
 
 ---
 
-## 🚀 Deployment Guide
+## 🚀 Deployment Guide (GCP Cloud Run + Secret Manager)
 
-### Deploying to Google Cloud Run:
+### 1. Secrets
+Create **one secret per value** (name = exact env var name, value = raw value only — do not upload a whole `.env` as one secret), or use the file mode with a single `env_stocks` secret:
+
 ```bash
-gcloud run deploy sm-stock-aiagent \
-  --source . \
-  --platform managed \
-  --region asia-east1 \
-  --allow-unauthenticated
+printf "%s" "VALUE" | gcloud secrets create LINE_CHANNEL_SECRET --data-file=-
+printf "%s" "VALUE" | gcloud secrets create LINE_CHANNEL_ACCESS_TOKEN --data-file=-
+printf "%s" "VALUE" | gcloud secrets create UNOROUTER_API_KEY --data-file=-
 ```
+
+### 2. Deploy
+
+```bash
+gcloud run deploy agent-stocks-service \
+  --source . --region asia-southeast1 \
+  --min-instances 0 --max-instances 2 --memory 512Mi --timeout 300 \
+  --set-secrets="ENV_STOCKS=env_stocks:latest"
+```
+
+- Scale-to-zero keeps cost near the free tier; cold starts mitigated by lazy store/LLM initialization.
+- Firestore uses the Cloud Run service account (grant `roles/datastore.user` if permission errors appear).
+- Debug endpoints: `/health` (liveness) and `/debug/config` (reports which env vars reached the container, without exposing values).
+
+### 3. LINE Console
+Set webhook URL to `https://<service-url>/callback`, enable *Use webhook*, disable *Auto-reply messages*, then Verify.
+
+---
+
+## 🧭 Roadmap
+- **BigQuery** (`stocks_query`): analytics warehouse over `analysis_runs` for historical accuracy dashboards.
+- **LangGraph**: explicit conditional-branching and reflection loops over the news pipeline (dedupe → relevance gate → analysis → fact-check reflection).
+- **Settrade production credentials** for live Thai-market trading-grade data.

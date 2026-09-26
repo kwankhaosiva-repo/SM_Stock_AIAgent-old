@@ -59,6 +59,14 @@ def process_report_job(payload: Dict[str, Any]):
                     'symbol': r.get('symbol'),
                     'price': f"{r.get('metrics', {}).get('price', 0):,.2f}",
                     'outlook': r.get('signal') or r.get('advice', {}).get('outlook') or 'Neutral',
+                    # One-line evidence under each stock: prefer news reason,
+                    # then financials, then stats — keeps the digest explainable.
+                    'reason': (
+                        ((r.get('reason_categories') or {}).get('news')
+                         or (r.get('reason_categories') or {}).get('financials')
+                         or (r.get('reason_categories') or {}).get('stats')
+                         or [''])[0]
+                    ),
                 }
                 for r in collected_reports[:3]
             ]

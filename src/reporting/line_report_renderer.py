@@ -38,19 +38,43 @@ class LineReportRenderer:
             if len(history) >= 2:
                 chart_url = ChartService.generate_sparkline_url(history, trend=outlook)
 
-        # 3 Evidence-based reasons
-        reasons = advice.get('reasons') or [report.get('reason') or "ไม่มีข้อมูลเชิงลึก"]
-        reason_boxes = []
-        for idx, r in enumerate(reasons[:3], 1):
-            reason_boxes.append({
-                "type": "box",
-                "layout": "horizontal",
-                "spacing": "sm",
-                "contents": [
-                    {"type": "text", "text": f"{idx}.", "size": "xs", "color": "#16803C", "flex": 0, "weight": "bold"},
-                    {"type": "text", "text": str(r), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
-                ],
-            })
+        # Reasons section — split into 3 evidence buckets so the user knows
+        # WHERE each reason comes from: news / financial statements / stats.
+        cats = report.get('reason_categories') or {}
+        if not cats:
+            # Legacy reports without categories — tag heuristically.
+            from workflows.report_workflow import ReportWorkflow
+            legacy_advice = advice if isinstance(advice, dict) else advice.to_dict()
+            cats = ReportWorkflow._categorized_reasons_from_list(
+                legacy_advice.get('reasons') or [report.get('reason') or "ไม่มีข้อมูลเชิงลึก"]
+            )
+        section_defs = [
+            ('📰 จากข่าว', cats.get('news') or [], '#16803C'),
+            ('🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8'),
+            ('📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309'),
+        ]
+        reason_sections = []
+        for title, items, color in section_defs:
+            if not items:
+                continue
+            rows = [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "•", "size": "xs", "color": color, "flex": 0},
+                        {"type": "text", "text": str(item), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                    ],
+                }
+                for item in items[:2]
+            ]
+            reason_sections.extend([
+                {"type": "text", "text": title, "size": "xxs", "weight": "bold", "color": color, "margin": "xs"},
+                {"type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": rows},
+            ])
+        if not reason_sections:
+            reason_sections = [{"type": "text", "text": "ยังไม่มีเหตุผลเชิงประจักษ์ในรอบนี้", "size": "xs", "color": "#9CA3AF"}]
 
         # Key risk
         risks = advice.get('risks') or ["ควรติดตามข่าวสารและข้อมูลพื้นฐานประกอบการลงทุน"]
@@ -182,13 +206,13 @@ class LineReportRenderer:
         # Reasons section
         body_contents.extend([
             {"type": "separator", "margin": "md"},
-            {"type": "text", "text": "📌 เหตุผลเชิงประจักษ์ 3 ข้อ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {"type": "text", "text": "📌 เหตุผลเชิงประจักษ์ (แยกตามแหล่งข้อมูล):", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
             {
                 "type": "box",
                 "layout": "vertical",
                 "margin": "sm",
-                "spacing": "xs",
-                "contents": reason_boxes,
+                "spacing": "xxs",
+                "contents": reason_sections,
             },
             # Key Risk section
             {"type": "separator", "margin": "md"},
@@ -310,28 +334,49 @@ class LineReportRenderer:
         provider = str(brief.get('provider') or 'ai')
         provider_label = 'โหมดสำรอง (ตัวเลขล้วน)' if provider == 'fallback' else f'AI: {provider}'
 
+        # Telegram-style flash (2 one-liners) — the deep ranked list with
+        # clickable links lives behind the News button, not on this card.
+        flash = [str(f) for f in (brief.get('news_flash') or [])][:2]
+        if not flash:
+            flash = [str(n) for n in (brief.get('news') or [])][:2]
         news_count = brief.get('news_count')
-        cited = brief.get('news_cited') or []
-        news_header = f"🗞 ข่าวย้ายตลาด"
+        news_header = '🗞 ข่าวเด่น'
         if news_count:
-            news_header += f" (รวม {news_count} ข่าว)"
-        if cited:
-            news_header += f" — ใช้ข่าวหมายเลข {', '.join(f'[{c}]' for c in cited[:5])}"
-
-        news_rows = [
+            news_header += f' (คัดจาก {news_count} ข่าวล่าสุด)'
+        flash_rows = [
             {
                 "type": "box",
                 "layout": "horizontal",
                 "spacing": "xs",
                 "contents": [
                     {"type": "text", "text": "•", "size": "xs", "color": cfg['color'], "flex": 0},
-                    {"type": "text", "text": str(n), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                    {"type": "text", "text": f[:90], "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                 ],
             }
-            for n in (brief.get('news') or [])[:5]
+            for f in flash
         ]
-        if not news_rows:
-            news_rows = [{"type": "text", "text": "ไม่มีข่าวสารล่าสุดในระบบ", "size": "xs", "color": "#9CA3AF"}]
+        if not flash_rows:
+            flash_rows = [{"type": "text", "text": "ไม่มีข่าวสารล่าสุดในระบบ", "size": "xs", "color": "#9CA3AF"}]
+
+        # Categorized reasons: news / financials / stats
+        cats = brief.get('reasons') or {}
+        cat_defs = [
+            ('📰', 'จากข่าว', cats.get('news') or [], '#16803C'),
+            ('🏦', 'จากงบ', cats.get('financials') or [], '#1D4ED8'),
+            ('📊', 'จากสถิติ', cats.get('stats') or [], '#B45309'),
+        ]
+        reason_rows = []
+        for emoji, label, items, color in cat_defs:
+            for item in (items or [])[:2]:
+                reason_rows.append({
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": emoji, "size": "xs", "flex": 0},
+                        {"type": "text", "text": f"[{label}] {item}", "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                    ],
+                })
 
         advice_rows = [
             {
@@ -393,16 +438,16 @@ class LineReportRenderer:
                 "margin": "md",
             },
             {"type": "separator", "margin": "md"},
-            # Top news
+            # Top news flash (2 one-liners; full ranked detail behind News button)
             {"type": "text", "text": news_header, "size": "xs", "weight": "bold", "color": "#374151", "margin": "md", "wrap": True},
             {
                 "type": "box",
                 "layout": "vertical",
                 "margin": "sm",
                 "spacing": "xs",
-                "contents": news_rows,
+                "contents": flash_rows,
             },
-            # Advice
+            # Advice — tagged by source bucket (news/financials/stats)
             {"type": "separator", "margin": "md"},
             {"type": "text", "text": "💡 คำแนะนำ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
             {
@@ -410,7 +455,11 @@ class LineReportRenderer:
                 "layout": "vertical",
                 "margin": "sm",
                 "spacing": "xs",
-                "contents": advice_rows,
+                "contents": (advice_rows if not reason_rows else advice_rows + [
+                    {"type": "separator", "margin": "sm"},
+                    {"type": "text", "text": "🧭 เหตุผลแยกตามแหล่งข้อมูล:", "size": "xxs", "weight": "bold", "color": "#374151"},
+                    {"type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": reason_rows},
+                ]),
             },
             # Disclaimer + provider
             {"type": "separator", "margin": "md"},
@@ -471,22 +520,40 @@ class LineReportRenderer:
 
             stock_rows.append({
                 "type": "box",
-                "layout": "horizontal",
+                "layout": "vertical",
                 "margin": "sm",
                 "contents": [
-                    {"type": "text", "text": sym, "size": "sm", "weight": "bold", "color": "#1F2937", "flex": 2},
-                    {"type": "text", "text": f"{price}", "size": "sm", "color": "#4B5563", "flex": 2},
                     {
-                        "type": "text",
-                        "text": outlook,
-                        "size": "xxs",
-                        "weight": "bold",
-                        "color": cfg['color'],
-                        "align": "end",
-                        "flex": 2,
+                        "type": "box",
+                        "layout": "horizontal",
+                        "contents": [
+                            {"type": "text", "text": sym, "size": "sm", "weight": "bold", "color": "#1F2937", "flex": 2},
+                            {"type": "text", "text": f"{price}", "size": "sm", "color": "#4B5563", "flex": 2},
+                            {
+                                "type": "text",
+                                "text": outlook,
+                                "size": "xxs",
+                                "weight": "bold",
+                                "color": cfg['color'],
+                                "align": "end",
+                                "flex": 2,
+                            },
+                        ],
                     },
                 ],
             })
+            # One-line evidence under each stock (news -> financials -> stats)
+            reason = str(item.get('reason') or '').strip()
+            if reason:
+                stock_rows.append({
+                    "type": "text",
+                    "text": f"↳ {reason[:80]}",
+                    "size": "xxs",
+                    "color": "#6B7280",
+                    "wrap": True,
+                    "margin": "xs",
+                    "offsetStart": "12px",
+                })
 
         if not stock_rows:
             stock_rows = [{"type": "text", "text": "ไม่มีหุ้นใน Watchlist ของคุณ", "size": "xs", "color": "#9CA3AF"}]

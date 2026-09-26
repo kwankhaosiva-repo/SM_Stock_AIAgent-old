@@ -79,10 +79,65 @@ def _openai_compatible(base_url: str, api_key: str, model: str, prompt: str) -> 
         raise ProviderError(f"unexpected response shape: {exc}") from exc
 
 
+# --- Model auto-fallback: providers deprecate free models often (HTTP 404).
+# When the configured model 404s, list the account's real /models catalog and
+# retry once with the best available model instead of failing the provider.
+_MODEL_FALLBACK_CACHE: Dict[str, str] = {}
+_MODEL_PREFERENCE = [
+    # groq-style ids
+    'llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'gemma2-9b-it',
+    # openrouter/unorouter-style slugs (free tiers)
+    'deepseek/deepseek-chat-v3.1:free', 'deepseek/deepseek-r1:free',
+    'google/gemini-3-flash:free', 'google/gemini-2.5-flash:free',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    # bare names seen on some gateways
+    'deepseek-chat-v3.1:free', 'gemini-flash-latest',
+]
+
+
+def _list_models(base_url: str, api_key: str) -> List[str]:
+    try:
+        resp = requests.get(
+            f"{base_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        return [m.get('id', '') for m in (data.get('data') or []) if m.get('id')]
+    except (requests.RequestException, ValueError):
+        return []
+
+
+def _openai_compatible_with_fallback(
+    base_url: str, api_key: str, model: str, prompt: str,
+) -> str:
+    try:
+        return _openai_compatible(base_url, api_key, model, prompt)
+    except ProviderError as exc:
+        if 'HTTP 404' not in str(exc):
+            raise
+        cache_key = f"{base_url}::{model}"
+        cached = _MODEL_FALLBACK_CACHE.get(cache_key)
+        if cached:
+            return _openai_compatible(base_url, api_key, cached, prompt)
+        available = _list_models(base_url, api_key)
+        if not available:
+            raise
+        preferred = [m for m in _MODEL_PREFERENCE if m in available and m != model]
+        target = preferred[0] if preferred else next((m for m in available if m != model), None)
+        if not target:
+            raise
+        print(f"[LLM] model '{model}' unavailable on {base_url} — retrying with '{target}'")
+        _MODEL_FALLBACK_CACHE[cache_key] = target
+        return _openai_compatible(base_url, api_key, target, prompt)
+
+
 def call_groq(prompt: str) -> str:
     if not Config.GROQ_API_KEY:
         raise ProviderError("GROQ_API_KEY not set")
-    return _openai_compatible(
+    return _openai_compatible_with_fallback(
         "https://api.groq.com/openai/v1",
         Config.GROQ_API_KEY,
         Config.GROQ_MODEL_NAME,
@@ -134,7 +189,7 @@ def call_openrouter(prompt: str) -> str:
     """OpenRouter — one key, hundreds of models incl. free tiers (":free")."""
     if not Config.OPENROUTER_API_KEY:
         raise ProviderError("OPENROUTER_API_KEY not set")
-    return _openai_compatible(
+    return _openai_compatible_with_fallback(
         "https://openrouter.ai/api/v1",
         Config.OPENROUTER_API_KEY,
         Config.OPENROUTER_MODEL_NAME,
@@ -146,7 +201,7 @@ def call_unorouter(prompt: str) -> str:
     """UnoRouter — hosted OpenAI-compatible gateway, 200+ models (many free)."""
     if not Config.UNOROUTER_API_KEY:
         raise ProviderError("UNOROUTER_API_KEY not set")
-    return _openai_compatible(
+    return _openai_compatible_with_fallback(
         Config.UNOROUTER_BASE_URL,
         Config.UNOROUTER_API_KEY,
         Config.UNOROUTER_MODEL_NAME,
@@ -231,7 +286,11 @@ class LLMRouter:
                         return text
                     raise ProviderError("empty response")
                 except ProviderError as exc:
-                    errors.append(f"{name}: {exc}")
+                    msg = str(exc)
+                    # 404 / missing key are deterministic — retrying wastes quota & time.
+                    errors.append(f"{name}: {msg}")
+                    if 'HTTP 404' in msg or 'not set' in msg:
+                        break
                     if attempt < max_retries_per_provider:
                         time.sleep(2 ** attempt)
         raise ProviderError("all providers failed :: " + " | ".join(errors))

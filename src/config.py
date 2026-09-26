@@ -82,7 +82,9 @@ class Config:
     # Multi-provider free-tier failover chain. Providers without keys are
     # skipped; on failure the SAME prompt + context goes to the next one.
     GROQ_API_KEY = os.getenv('GROQ_API_KEY') or os.getenv('GROQ_API', '')
-    GROQ_MODEL_NAME = os.getenv('GROQ_MODEL_NAME', 'llama-3.3-70b-versatile')
+    # llama-3.3-70b-versatile ถูก Groq ปลดออกแล้ว — ใช้ llama-3.1-8b-instant (เสถียร)
+    # ถ้าโมเดลที่ตั้งไม่มีแล้ว provider จะดึง /models มาเลือกอัตโนมัติ (ดู llm_providers)
+    GROQ_MODEL_NAME = os.getenv('GROQ_MODEL_NAME', 'llama-3.1-8b-instant')
     CEREBRAS_API_KEY = os.getenv('CEREBRAS_API_KEY', '')
     CEREBRAS_MODEL_NAME = os.getenv('CEREBRAS_MODEL_NAME', 'llama-3.3-70b')
     MISTRAL_API_KEY = os.getenv('MISTRAL_API_KEY') or os.getenv('MISTRAL_API', '')
@@ -93,12 +95,14 @@ class Config:
     # OpenRouter — free models available via ":free" suffix
     OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY') or os.getenv('OPENROUTER_API', '')
     OPENROUTER_MODEL_NAME = os.getenv(
-        'OPENROUTER_MODEL_NAME', 'meta-llama/llama-3.3-70b-instruct:free'
+        # Llama 3.3 ถูกดึงออกจาก free tier ของ OpenRouter แล้ว — ใช้ DeepSeek free
+        'OPENROUTER_MODEL_NAME', 'deepseek/deepseek-chat-v3.1:free'
     )
     # UnoRouter — hosted OpenAI-compatible gateway (unorouter.com)
     UNOROUTER_API_KEY = os.getenv('UNOROUTER_API_KEY') or os.getenv('UNOROUTER_API', '')
     UNOROUTER_BASE_URL = os.getenv('UNOROUTER_BASE_URL', 'https://api.unorouter.com/v1')
-    UNOROUTER_MODEL_NAME = os.getenv('UNOROUTER_MODEL_NAME', 'gemini-flash-latest')
+    # UnoRouter ใช้ slug สไตล์ OpenRouter (เช่น google/gemini-3-flash:free)
+    UNOROUTER_MODEL_NAME = os.getenv('UNOROUTER_MODEL_NAME', 'google/gemini-3-flash:free')
     # 9Router — local proxy (http://localhost:20128/v1), auto-fallback 40+ providers
     ROUTER9_BASE_URL = os.getenv('ROUTER9_BASE_URL', '')
     ROUTER9_API_KEY = os.getenv('ROUTER9_API_KEY', '')
