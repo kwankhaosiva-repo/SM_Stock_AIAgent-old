@@ -493,7 +493,6 @@ def handle_postback(event):
                 _quick_reply(event, "⏳ มีรายการที่กำลังประมวลผลอยู่แล้ว รอสักครู่ครับ")
                 return
 
-        elif action in ('get_report', 'refresh'):
             target_symbol = symbol if action == 'refresh' else None
             if target_symbol:
                 item = store.get_watch_item(user_id, target_symbol)
