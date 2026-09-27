@@ -64,13 +64,13 @@ def render_news_detail_card(symbol: str, brief: Dict[str, Any]) -> Dict[str, Any
         # tail when we already show the publisher separately.
         if publisher and title.lower().endswith(f'- {publisher.lower()}'):
             title = title[: -len(publisher) - 2].rstrip(' -')
-        why = str(item.get('why') or '')
+        why = str(item.get('why') or '')[:100]
         url = str(item.get('url') or '')
 
         row_children: List[Dict[str, Any]] = [
             {
                 "type": "text",
-                "text": f"{no}. {cfg['emoji']} {title}",
+                "text": f"{no}. {title}",
                 "size": "xs",
                 "weight": "bold",
                 "color": "#1F2937",
@@ -78,27 +78,27 @@ def render_news_detail_card(symbol: str, brief: Dict[str, Any]) -> Dict[str, Any
                 "flex": 1,
             }
         ]
+        contents.append({
+            "type": "box",
+            "layout": "vertical",
+            "margin": "md",
+            "contents": row_children,
+        })
+        # Meta line (publisher + impact) on its own row — side-by-side layout
+        # pushed long English headlines into an unreadable narrow column.
         meta_bits = []
         if publisher:
             meta_bits.append(publisher)
         if impact:
             meta_bits.append(f"{cfg['emoji']} {impact}")
         if meta_bits:
-            row_children.append({
+            contents.append({
                 "type": "text",
                 "text": ' • '.join(meta_bits),
                 "size": "xxs",
                 "color": cfg['color'],
-                "align": "end",
-                "flex": 0,
+                "margin": "xs",
             })
-        contents.append({
-            "type": "box",
-            "layout": "horizontal",
-            "margin": "md",
-            "spacing": "xs",
-            "contents": row_children,
-        })
         if why:
             contents.append({
                 "type": "text",

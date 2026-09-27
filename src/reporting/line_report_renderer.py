@@ -1,7 +1,28 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
 from analysis.chart_service import ChartService
+from analysis.news_cleaning import clean_headline
+
+# Reason strings that carry no information for the reader.
+_PLACEHOLDER_RE = re.compile(r'ไม่มีข้อมูล|ไม่พบข้อมูล|ไม่สามารถ|ประเมินไม่ได้|^\s*[-–—]?\s*$')
+# Citation markers like [6] / [1][3] — meaningful only inside the detail card.
+_CITATION_RE = re.compile(r'\s*\[\d+\]\s*')
+# Source-bucket tags the AI sometimes embeds — duplicated by the emoji labels.
+_BUCKET_TAG_RE = re.compile(r'\s*\[(?:จากข่าว|จากงบ|จากสถิติ|จากตัวเลข|news|financials|stats|macro)\]\s*', re.IGNORECASE)
+# Stats reasons that merely restate numbers already shown in the metrics grid.
+_REDUNDANT_STATS_RE = re.compile(r'^(ราคาล่าสุด|RSI\(|ความผันผวน|Volatility|Dividend|P/E)', re.IGNORECASE)
+
+
+def _clean_reason(text: Any, max_len: int = 110) -> str:
+    """Normalize an AI/source reason line: strip URLs, tags, collapse spaces."""
+    cleaned = clean_headline(str(text or ''))
+    cleaned = _BUCKET_TAG_RE.sub(' ', cleaned)
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
+    if len(cleaned) > max_len:
+        cleaned = cleaned[: max_len - 1].rstrip() + '…'
+    return cleaned
 
 
 class LineReportRenderer:
@@ -49,12 +70,17 @@ class LineReportRenderer:
                 legacy_advice.get('reasons') or [report.get('reason') or "ไม่มีข้อมูลเชิงลึก"]
             )
         section_defs = [
-            ('📰 จากข่าว', cats.get('news') or [], '#16803C'),
-            ('🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8'),
-            ('📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309'),
+            ('📰 จากข่าว', cats.get('news') or [], '#16803C', False),
+            ('🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8', False),
+            ('📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309', True),
         ]
         reason_sections = []
-        for title, items, color in section_defs:
+        for title, items, color, drop_redundant in section_defs:
+            items = [
+                t for t in (_clean_reason(i) for i in items)
+                if t and not _PLACEHOLDER_RE.search(t)
+                and not (drop_redundant and _REDUNDANT_STATS_RE.match(t))
+            ][:2]
             if not items:
                 continue
             rows = [
@@ -64,13 +90,13 @@ class LineReportRenderer:
                     "spacing": "xs",
                     "contents": [
                         {"type": "text", "text": "•", "size": "xs", "color": color, "flex": 0},
-                        {"type": "text", "text": str(item), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                        {"type": "text", "text": item, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                     ],
                 }
-                for item in items[:2]
+                for item in items
             ]
             reason_sections.extend([
-                {"type": "text", "text": title, "size": "xxs", "weight": "bold", "color": color, "margin": "xs"},
+                {"type": "text", "text": title, "size": "xs", "weight": "bold", "color": color, "margin": "md"},
                 {"type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": rows},
             ])
         if not reason_sections:
@@ -336,6 +362,13 @@ class LineReportRenderer:
 
         # Telegram-style flash (2 one-liners) — the deep ranked list with
         # clickable links lives behind the News button, not on this card.
+        # Summary — strip citation markers ([6]) that only make sense in the
+        # ranked detail view, then trim to a readable length.
+        summary_text = _CITATION_RE.sub(' ', str(brief.get('summary') or ''))
+        summary_text = re.sub(r'\s{2,}', ' ', summary_text).strip()
+        if len(summary_text) > 260:
+            summary_text = summary_text[:259].rstrip() + '…'
+
         flash = [str(f) for f in (brief.get('news_flash') or [])][:2]
         if not flash:
             flash = [str(n) for n in (brief.get('news') or [])][:2]
@@ -366,15 +399,19 @@ class LineReportRenderer:
             ('📊', 'จากสถิติ', cats.get('stats') or [], '#B45309'),
         ]
         reason_rows = []
-        for emoji, label, items, color in cat_defs:
-            for item in (items or [])[:2]:
+        for emoji, _label, items, color in cat_defs:
+            cleaned_items = [
+                t for t in (_clean_reason(i) for i in (items or []))
+                if t and not _PLACEHOLDER_RE.search(t)
+            ][:2]
+            for item in cleaned_items:
                 reason_rows.append({
                     "type": "box",
                     "layout": "horizontal",
                     "spacing": "xs",
                     "contents": [
                         {"type": "text", "text": emoji, "size": "xs", "flex": 0},
-                        {"type": "text", "text": f"[{label}] {item}", "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                        {"type": "text", "text": item, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                     ],
                 })
 
@@ -431,7 +468,7 @@ class LineReportRenderer:
             # Summary
             {
                 "type": "text",
-                "text": str(brief.get('summary') or ''),
+                "text": summary_text,
                 "size": "xs",
                 "color": "#1F2937",
                 "wrap": True,
@@ -543,17 +580,17 @@ class LineReportRenderer:
                 ],
             })
             # One-line evidence under each stock (news -> financials -> stats)
-            reason = str(item.get('reason') or '').strip()
-            if reason:
-                stock_rows.append({
-                    "type": "text",
-                    "text": f"↳ {reason[:80]}",
-                    "size": "xxs",
-                    "color": "#6B7280",
-                    "wrap": True,
-                    "margin": "xs",
-                    "offsetStart": "12px",
-                })
+            reason = _clean_reason(item.get('reason'))
+            if reason and not _PLACEHOLDER_RE.search(reason) and not _REDUNDANT_STATS_RE.match(reason):
+                stock_rows.append(                    {
+                        "type": "text",
+                        "text": f"↳ {reason[:100]}{'…' if len(reason) > 100 else ''}",
+                        "size": "xxs",
+                        "color": "#6B7280",
+                        "wrap": True,
+                        "margin": "xs",
+                        "offsetStart": "12px",
+                    })
 
         if not stock_rows:
             stock_rows = [{"type": "text", "text": "ไม่มีหุ้นใน Watchlist ของคุณ", "size": "xs", "color": "#9CA3AF"}]
