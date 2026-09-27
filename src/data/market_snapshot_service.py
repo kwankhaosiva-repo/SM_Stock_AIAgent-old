@@ -34,6 +34,15 @@ class MarketSnapshotService:
     ):
         self._market_provider = market_provider
         self._news_provider = news_provider or NewsProvider()
+        # News chain: official company feed first, RSS scrape as fallback.
+        try:
+            from data.providers.finnhub_news_provider import FinnhubNewsProvider
+            finnhub: Optional[NewsDataProvider] = FinnhubNewsProvider()
+        except Exception:
+            finnhub = None
+        self._news_providers: list[NewsDataProvider] = (
+            ([finnhub] if finnhub else []) + [self._news_provider]
+        )
         self._yahoo_provider = YahooMarketDataProvider()
         self._thai_provider = ThaiMarketDataProvider()
         self._settrade_provider = SettradeOpenDataProvider()
@@ -101,12 +110,16 @@ class MarketSnapshotService:
         # 2. Collect fresh data via the anti-block provider chain
         raw, provider_name = self._fetch_with_fallback(symbol)
 
-        # Collect news sources
+        # Collect news sources — Finnhub company feed first (official, US
+        # symbols), Google News RSS as fallback (covers Thai + macro).
         news_sources = []
-        try:
-            news_sources = self._news_provider.fetch_news(symbol)
-        except Exception as exc:
-            print(f"[SnapshotService] News fetch warning for {symbol}: {exc}")
+        for provider in self._news_providers:
+            try:
+                news_sources = provider.fetch_news(symbol)
+                if news_sources:
+                    break
+            except Exception as exc:
+                print(f"[SnapshotService] {provider.name} skip: {exc}")
 
         snapshot = self._build_snapshot(symbol, raw, news_sources, provider_name)
 

@@ -70,13 +70,44 @@ def _openai_compatible(base_url: str, api_key: str, model: str, prompt: str) -> 
         {
             "model": model,
             "temperature": 0.2,
-            "messages": [{"role": "user", "content": prompt}],
+            # Cap completion explicitly: some gateways default max_tokens to the
+            # model's full context (e.g. 65536) and then reject with 402 when
+            # the account's free quota cannot afford it.
+            "max_tokens": int(os.getenv('LLM_MAX_TOKENS', '2048')),
+            "messages": [{"role": "user", "content": _clip_prompt(prompt, model)}],
         },
     )
     try:
         return data["choices"][0]["message"]["content"]
     except (KeyError, IndexError, TypeError) as exc:
         raise ProviderError(f"unexpected response shape: {exc}") from exc
+
+
+# Rough context ceilings (chars) per model family — keeps the 400
+# "Please reduce the length of the messages" error away on 8K models.
+_PROMPT_CHAR_LIMITS = (
+    ('8b-instant', 24_000),
+    ('8b', 24_000),
+    ('-9b-', 24_000),
+    ('free', 40_000),
+)
+_DEFAULT_PROMPT_LIMIT = 80_000
+
+
+def _clip_prompt(prompt: str, model: str) -> str:
+    ml = (model or '').lower()
+    limit = _DEFAULT_PROMPT_LIMIT
+    for key, cap in _PROMPT_CHAR_LIMITS:
+        if key in ml:
+            limit = cap
+            break
+    if len(prompt) <= limit:
+        return prompt
+    head = prompt[: int(limit * 0.6)]
+    tail = prompt[-int(limit * 0.3):]
+    return (
+        f"{head}\n\n[...ข้อมูลส่วนกลางถูกตัดเพื่อรักษาขนาด context...\n]\n\n{tail}"
+    )
 
 
 # --- Model auto-fallback: providers deprecate free models often (HTTP 404).
@@ -93,6 +124,44 @@ _MODEL_PREFERENCE = [
     # bare names seen on some gateways
     'deepseek-chat-v3.1:free', 'gemini-flash-latest',
 ]
+
+# Non-chat models that must never be picked by the auto-fallback
+# (safety guards, audio, embeddings, image generators, ...).
+_MODEL_BLACKLIST = (
+    'guard', 'whisper', 'embed', 'rerank', 'moderation', 'tts',
+    'image', 'vision', 'sdxl', 'flux', 'diffusion', 'caption',
+    'dall', 'speech', 'transcri', 'distil-whisper', 'playai',
+)
+
+
+def _pick_model(available: List[str], original: str) -> Optional[str]:
+    """Choose the best *chat* model from a provider catalog."""
+    cands = [
+        m for m in available
+        if m != original and not any(b in m.lower() for b in _MODEL_BLACKLIST)
+    ]
+    if not cands:
+        return None
+    for pref in _MODEL_PREFERENCE:
+        if pref in cands:
+            return pref
+
+    def score(m: str) -> int:
+        ml = m.lower()
+        s = 0
+        if '70b' in ml or 'qwen' in ml:
+            s += 4
+        if 'chat' in ml or 'instruct' in ml:
+            s += 3
+        if 'flash' in ml:
+            s += 2
+        if any(k in ml for k in ('llama', 'gemma', 'deepseek', 'gemini', 'mistral')):
+            s += 1
+        if 'preview' in ml or 'experiment' in ml:
+            s -= 2
+        return -s
+
+    return sorted(cands, key=score)[0]
 
 
 def _list_models(base_url: str, api_key: str) -> List[str]:
@@ -125,10 +194,7 @@ def _openai_compatible_with_fallback(
         available = _list_models(base_url, api_key)
         if not available:
             raise
-        preferred = [m for m in _MODEL_PREFERENCE if m in available and m != model]
-        target = preferred[0] if preferred else next((m for m in available if m != model), None)
-        if not target:
-            raise
+        target = _pick_model(available, model)
         print(f"[LLM] model '{model}' unavailable on {base_url} — retrying with '{target}'")
         _MODEL_FALLBACK_CACHE[cache_key] = target
         return _openai_compatible(base_url, api_key, target, prompt)
@@ -278,11 +344,17 @@ class LLMRouter:
             raise ProviderError("no LLM provider configured")
         errors: List[str] = []
         for name, fn in self.chain:
+            started = time.time()
             for attempt in range(max_retries_per_provider + 1):
                 try:
                     text = fn(prompt)
                     if text and text.strip():
                         self.last_used = name
+                        print(
+                            f"[LLM] success via '{name}' "
+                            f"({time.time() - started:.1f}s, {len(text)} chars, "
+                            f"attempts={attempt + 1})"
+                        )
                         return text
                     raise ProviderError("empty response")
                 except ProviderError as exc:
