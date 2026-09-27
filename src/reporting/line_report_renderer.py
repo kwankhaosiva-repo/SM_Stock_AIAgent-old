@@ -11,6 +11,29 @@ _PLACEHOLDER_RE = re.compile(r'ไม่มีข้อมูล|ไม่พบ
 _CITATION_RE = re.compile(r'\s*\[\d+\]\s*')
 # Source-bucket tags the AI sometimes embeds — duplicated by the emoji labels.
 _BUCKET_TAG_RE = re.compile(r'\s*\[(?:จากข่าว|จากงบ|จากสถิติ|จากตัวเลข|news|financials|stats|macro)\]\s*', re.IGNORECASE)
+
+# Advice-tone classifier: each recommendation line gets a traffic-light tag
+# (English keywords — visually scannable, as chosen by product decision).
+_ADVICE_TONES = {
+    'Positive': {'emoji': '🟢', 'label': 'Positive', 'color': '#16803C'},
+    'Negative': {'emoji': '🔴', 'label': 'Negative', 'color': '#B42318'},
+    'Watch': {'emoji': '🟡', 'label': 'Watch', 'color': '#8A6100'},
+}
+_ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดันราคา', 'sell', 'avoid', 'downside', 'negative')
+_ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'watch', 'hold', 'monitor', 'wait')
+_ADVICE_POS_KW = ('ซื้อ', 'สะสม', 'โอกาส', 'น่าสนใจ', 'แข็งแรง', 'จุดเข้า', 'เป้าหมาย', 'buy', 'accumulate', 'positive', 'upside')
+
+
+def _advice_tone(text: str) -> Optional[Dict[str, str]]:
+    """Traffic-light tag for one advice line; None = neutral (no tag)."""
+    t = str(text or '').lower()
+    if any(k in t for k in _ADVICE_NEG_KW):
+        return _ADVICE_TONES['Negative']
+    if any(k in t for k in _ADVICE_WATCH_KW):
+        return _ADVICE_TONES['Watch']
+    if any(k in t for k in _ADVICE_POS_KW):
+        return _ADVICE_TONES['Positive']
+    return None
 # Stats reasons that merely restate numbers already shown in the metrics grid.
 _REDUNDANT_STATS_RE = re.compile(r'^(ราคาล่าสุด|RSI\(|ความผันผวน|Volatility|Dividend|P/E)', re.IGNORECASE)
 
@@ -258,7 +281,7 @@ class LineReportRenderer:
                 "margin": "sm",
                 "contents": [
                     {"type": "text", "text": "👀 สิ่งที่ควรติดตามต่อไป:", "size": "xs", "weight": "bold", "color": "#4B5563"},
-                    {"type": "text", "text": watch_text, "size": "xs", "color": "#4B5563", "wrap": True, "margin": "xs"},
+                    {"type": "text", "text": f"{(_advice_tone(watch_text) or _ADVICE_TONES['Watch'])['emoji']} {watch_text}", "size": "xs", "color": "#4B5563", "wrap": True, "margin": "xs"},
                 ],
             },
             # Disclaimer
@@ -415,18 +438,21 @@ class LineReportRenderer:
                     ],
                 })
 
-        advice_rows = [
-            {
+        advice_rows = []
+        for idx, a in enumerate((brief.get('advice') or [])[:4], 1):
+            advice_text = _clean_reason(a, max_len=140)
+            tone = _advice_tone(advice_text)
+            number_color = tone['color'] if tone else '#6B7280'
+            prefix = f"{tone['emoji']} {tone['label']} — " if tone else ''
+            advice_rows.append({
                 "type": "box",
                 "layout": "horizontal",
                 "spacing": "xs",
                 "contents": [
-                    {"type": "text", "text": f"{idx}.", "size": "xs", "color": "#16803C", "flex": 0, "weight": "bold"},
-                    {"type": "text", "text": str(a), "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                    {"type": "text", "text": f"{idx}.", "size": "xs", "color": number_color, "flex": 0, "weight": "bold"},
+                    {"type": "text", "text": f"{prefix}{advice_text}", "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                 ],
-            }
-            for idx, a in enumerate((brief.get('advice') or [])[:4], 1)
-        ]
+            })
         if not advice_rows:
             advice_rows = [{"type": "text", "text": "ติดตามข่าวสารก่อนตัดสินใจ", "size": "xs", "color": "#4B5563"}]
 
