@@ -70,6 +70,7 @@ Channels (LINE / Web / Discord)
 - **Press debounce**: 30-s lock per user/action/symbol in Firestore; repeat presses get "already working on it" instead of duplicate AI calls.
 - **Progressive disclosure**: 2-line headline flash in the summary card → full impact-ranked news card (with original-source buttons) on the News press.
 - **Three-bucket reasons**: 📰 News / 🏦 Financials / 📊 Statistics — the user always knows *which kind of evidence* backs each claim.
+- **Traffic-light advice**: every advice line carries 🟢 Positive / 🔴 Negative / 🟡 Watch; auto-cleaned text (no URLs, no citation noise) keeps cards scannable.
 
 ---
 
@@ -80,10 +81,11 @@ Channels (LINE / Web / Discord)
 | Backend | Python 3.11, Flask 3, gunicorn |
 | Channels | line-bot-sdk (Flex), discord.py, web chat |
 | LLM | google-genai + OpenAI-compatible failover chain (8 providers incl. Ollama local) |
-| Data | yfinance, pandas, Google News RSS, Settrade Open API, FMP |
+| Data | yfinance, pandas, Finnhub company news + Google News RSS, Settrade Open API, FMP |
 | Storage | Google Firestore (prod) / in-memory backend (dev & tests) |
 | Queue | Redis + RQ (optional; local thread-pool fallback) |
 | Validation | Pydantic v2 JSON contracts for all agent outputs |
+| Orchestration | LangGraph (parallel agent fan-out + advice-review reflection loop) |
 | Deploy | Docker → GCP Cloud Run (scale-to-zero), Secret Manager, Cloud Scheduler |
 
 ---
@@ -103,9 +105,8 @@ Channels (LINE / Web / Discord)
 ## 🚀 What's Next
 
 1. **BigQuery analytics** — export `analysis_runs` to `stocks_query` for historical recommendation-accuracy dashboards.
-2. **LangGraph orchestration** — conditional branching (skip expensive analysis for low-impact questions) + reflection loops (fact-check against financials before delivery).
+2. **LangGraph orchestration** — conditional branching (skip expensive analysis for low-impact questions) beyond the current parallel fan-out + reflection loop.
 3. **Settrade production account** — live Thai-market data with real trading-grade quality.
-4. **News source upgrade** — Finnhub company news / SET official news beyond Google News RSS.
 
 ---
 

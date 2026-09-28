@@ -19,9 +19,9 @@ _ADVICE_TONES = {
     'Negative': {'emoji': '🔴', 'label': 'Negative', 'color': '#B42318'},
     'Watch': {'emoji': '🟡', 'label': 'Watch', 'color': '#8A6100'},
 }
-_ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดันราคา', 'sell', 'avoid', 'downside', 'negative')
-_ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'watch', 'hold', 'monitor', 'wait')
-_ADVICE_POS_KW = ('ซื้อ', 'สะสม', 'โอกาส', 'น่าสนใจ', 'แข็งแรง', 'จุดเข้า', 'เป้าหมาย', 'buy', 'accumulate', 'positive', 'upside')
+_ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดันราคา', 'ลดลง', 'ร่วง', 'ดิ่ง', 'โดนขาย', 'ฟ้อง', 'คดี', 'ปรับลด', 'ต่ำกว่าคาด', 'ขาดทุน', 'sell', 'avoid', 'downside', 'negative', 'threat', 'risk')
+_ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'ช่วงระวัง', 'อยู่ในโซนกลาง', 'ผันผวน', 'watch', 'hold', 'monitor', 'wait')
+_ADVICE_POS_KW = ('ซื้อ', 'สะสม', 'โอกาส', 'น่าสนใจ', 'แข็งแรง', 'จุดเข้า', 'เป้าหมาย', 'เพิ่มขึ้น', 'เติบโต', 'ขยาย', 'เพิ่มถือ', 'เพิ่มสัดส่วน', 'ซื้อกิจการ', 'ทะลุ', 'ผ่านแนวต้าน', 'ต่ำกว่ามูลค่า', 'ถูกกว่ามูลค่า', 'ขาขึ้น', 'buy', 'accumulate', 'positive', 'upside', 'growth', 'expand')
 
 
 def _advice_tone(text: str) -> Optional[Dict[str, str]]:
@@ -39,8 +39,9 @@ _REDUNDANT_STATS_RE = re.compile(r'^(ราคาล่าสุด|RSI\(|คว
 
 
 def _clean_reason(text: Any, max_len: int = 110) -> str:
-    """Normalize an AI/source reason line: strip URLs, tags, collapse spaces."""
+    """Normalize an AI/source reason line: strip URLs, citations, tags."""
     cleaned = clean_headline(str(text or ''))
+    cleaned = _CITATION_RE.sub(' ', cleaned)
     cleaned = _BUCKET_TAG_RE.sub(' ', cleaned)
     cleaned = re.sub(r'\s{2,}', ' ', cleaned).strip()
     if len(cleaned) > max_len:
@@ -106,18 +107,19 @@ class LineReportRenderer:
             ][:2]
             if not items:
                 continue
-            rows = [
-                {
+            rows = []
+            for item in items:
+                tone = _advice_tone(item)
+                display = f"{tone['emoji']} {tone['label']} — {item}" if tone else item
+                rows.append({
                     "type": "box",
                     "layout": "horizontal",
                     "spacing": "xs",
                     "contents": [
                         {"type": "text", "text": "•", "size": "xs", "color": color, "flex": 0},
-                        {"type": "text", "text": item, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                        {"type": "text", "text": display, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                     ],
-                }
-                for item in items
-            ]
+                })
             reason_sections.extend([
                 {"type": "text", "text": title, "size": "xs", "weight": "bold", "color": color, "margin": "md"},
                 {"type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": rows},
@@ -428,13 +430,15 @@ class LineReportRenderer:
                 if t and not _PLACEHOLDER_RE.search(t)
             ][:2]
             for item in cleaned_items:
+                tone = _advice_tone(item)
+                prefix = f"{tone['emoji']} {tone['label']} — " if tone else ''
                 reason_rows.append({
                     "type": "box",
                     "layout": "horizontal",
                     "spacing": "xs",
                     "contents": [
                         {"type": "text", "text": emoji, "size": "xs", "flex": 0},
-                        {"type": "text", "text": item, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                        {"type": "text", "text": f"{prefix}{item}", "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                     ],
                 })
 

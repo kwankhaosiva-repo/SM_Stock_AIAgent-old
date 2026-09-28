@@ -47,6 +47,7 @@ flowchart LR
 - **Instant ack + press debounce**: every analysis button replies with a "⏳ processing" ack immediately; repeated presses within 30 s per user/action/symbol are locked (no duplicate AI calls, no duplicate cards).
 - **News detail on demand**: the summary card shows 2-line telegraph-style headlines; the **News** button opens a full card ranked by market impact, per-news verdict, "why it matters" line, and a tappable **original-source button** (URLs come only from the digest, never LLM-invented).
 - **Three-bucket reasons**: every recommendation separates evidence into 📰 News / 🏦 Financial statements / 📊 Statistics (P/E, RSI, support-resistance with derivation).
+- **Traffic-light advice**: each advice line is tagged 🟢 Positive / 🔴 Negative / 🟡 Watch so the user can scan the verdict before reading; reason lines are auto-cleaned (URLs, citation markers, placeholders, redundant restatements stripped).
 
 ---
 
@@ -115,6 +116,7 @@ src/
       yahoo_provider.py          # Global quotes, history, financials
       thai_market_provider.py    # SET equities (.BK)
       settrade_open_provider.py  # Official SET feed (Thai-only, skip if unconfigured)
+      finnhub_news_provider.py   # Official company news for US symbols (skip on .BK / no key)
       news_provider.py           # Company & macro news with provenance
       relay_provider.py          # Local data relay via Cloudflare Tunnel
       legacy_provider.py         # Backwards-compatibility adapter
@@ -195,7 +197,7 @@ settrade_open (Thai .BK, official feed) → yahoo → local relay → skip
 - **Yahoo Finance**: global quotes, history, financials.
 - **FMP**: balance-sheet fallback when Yahoo blocks.
 - **Local data relay**: run a fetcher on your home machine and expose it via Cloudflare Tunnel (`DATA_RELAY_URL`) to bypass cloud-IP blocks (e.g., Finnhub on GCP).
-- News: Google News RSS with cleaning/dedup/ranking (`news_cleaning.py`).
+- News runs as a chain too: **Finnhub company news** (official feed, US symbols) → **Google News RSS** fallback (Thai + macro) with cleaning/dedup/ranking (`news_cleaning.py`).
 
 ---
 
@@ -233,7 +235,7 @@ Shared command layer: `src/chat_service.py` dispatches identical commands across
 | Queue | redis + rq (optional) |
 | Scheduler | apscheduler |
 | Validation | pydantic v2 |
-| Orchestration (roadmap) | langgraph |
+| Orchestration | langgraph (parallel agents + reflection loop in `report_workflow.py`) |
 | Deploy | Docker → GCP Cloud Run, Secret Manager, scale-to-zero |
 
 ---
@@ -340,5 +342,4 @@ Set webhook URL to `https://<service-url>/callback`, enable *Use webhook*, disab
 
 ## 🧭 Roadmap
 - **BigQuery** (`stocks_query`): analytics warehouse over `analysis_runs` for historical accuracy dashboards.
-- **LangGraph**: explicit conditional-branching and reflection loops over the news pipeline (dedupe → relevance gate → analysis → fact-check reflection).
 - **Settrade production credentials** for live Thai-market trading-grade data.
