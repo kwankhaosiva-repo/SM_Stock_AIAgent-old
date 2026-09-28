@@ -136,7 +136,7 @@ def get_market_news(symbol):
         root = ET.fromstring(xml_data)
         
         news_items = []
-        for item in root.findall('.//item')[:3]:  # Top 3 news items
+        for item in root.findall('.//item')[:10]:  # fetch wide, rank later
             title = item.find('title')
             link = item.find('link')
             pub_date = item.find('pubDate')
@@ -209,7 +209,7 @@ def get_general_market_news():
         root = ET.fromstring(xml_data)
         
         news_items = []
-        for item in root.findall('.//item')[:3]:
+        for item in root.findall('.//item')[:10]:  # fetch wide, rank later
             title = item.find('title')
             link = item.find('link')
             pub_date = item.find('pubDate')

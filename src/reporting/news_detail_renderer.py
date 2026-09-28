@@ -45,9 +45,15 @@ def render_news_detail_card(symbol: str, brief: Dict[str, Any]) -> Dict[str, Any
         },
     ]
     if news_count:
+        raw_count = brief.get('raw_count')
+        count_text = (
+            f"คัดกรองจาก {news_count} จากที่ดึงมา {raw_count} ข่าวล่าสุด • เรียงจากกระทบมากไปน้อย"
+            if raw_count and raw_count > news_count
+            else f"คัดกรองจาก {news_count} ข่าวล่าสุด • เรียงจากกระทบมากไปน้อย"
+        )
         contents.append({
             "type": "text",
-            "text": f"คัดกรองจาก {news_count} ข่าวล่าสุด • เรียงจากกระทบมากไปน้อย",
+            "text": count_text,
             "size": "xxs",
             "color": "#6B7280",
             "margin": "sm",

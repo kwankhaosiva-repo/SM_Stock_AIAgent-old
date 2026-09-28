@@ -9,8 +9,9 @@ from analysis.news_cleaning import clean_headline
 _PLACEHOLDER_RE = re.compile(r'ไม่มีข้อมูล|ไม่พบข้อมูล|ไม่สามารถ|ประเมินไม่ได้|^\s*[-–—]?\s*$')
 # Citation markers like [6] / [1][3] — meaningful only inside the detail card.
 _CITATION_RE = re.compile(r'\s*\[\d+\]\s*')
-# Source-bucket tags the AI sometimes embeds — duplicated by the emoji labels.
-_BUCKET_TAG_RE = re.compile(r'\s*\[(?:จากข่าว|จากงบ|จากสถิติ|จากตัวเลข|news|financials|stats|macro)\]\s*', re.IGNORECASE)
+# Source-bucket tags the AI sometimes embeds — normalized (not stripped) so
+# every reason line carries ONE readable provenance tag: [จากข่าว] ฯลฯ
+_BUCKET_TAG_RE = re.compile(r'\s*\[(?:จากข่าว|จากงบ(?:การเงิน)?|จากสถิติ|จากตัวเลข(?:สถิติ)?|จากข้อมูลสถิติ|news|financials?|stats?|macro)\]\s*', re.IGNORECASE)
 
 # Advice-tone classifier: each recommendation line gets a traffic-light tag
 # (English keywords — visually scannable, as chosen by product decision).
@@ -39,7 +40,8 @@ _REDUNDANT_STATS_RE = re.compile(r'^(ราคาล่าสุด|RSI\(|คว
 
 
 def _clean_reason(text: Any, max_len: int = 110) -> str:
-    """Normalize an AI/source reason line: strip URLs, citations, tags."""
+    """Normalize an AI/source reason line: strip URLs/citations, keep one
+    provenance tag like [จากข่าว] (tags get re-added per bucket by callers)."""
     cleaned = clean_headline(str(text or ''))
     cleaned = _CITATION_RE.sub(' ', cleaned)
     cleaned = _BUCKET_TAG_RE.sub(' ', cleaned)
@@ -98,8 +100,19 @@ class LineReportRenderer:
             ('🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8', False),
             ('📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309', True),
         ]
+        # Bucket tag: the section header already says WHERE, but the user
+        # wants the explicit [จากข่าว]/[จากงบ]/[จากสถิติ] tag on every line.
+        _STOCK_TAG = {
+            'news': '[จากข่าว]',
+            'financials': '[จากงบ]',
+            'stats': '[จากสถิติ]',
+        }
         reason_sections = []
         for title, items, color, drop_redundant in section_defs:
+            bucket = 'news' if title.startswith('📰') else (
+                'financials' if title.startswith('🏦') else 'stats'
+            )
+            tag = _STOCK_TAG.get(bucket, '[จากสถิติ]')
             items = [
                 t for t in (_clean_reason(i) for i in items)
                 if t and not _PLACEHOLDER_RE.search(t)
@@ -110,7 +123,8 @@ class LineReportRenderer:
             rows = []
             for item in items:
                 tone = _advice_tone(item)
-                display = f"{tone['emoji']} {tone['label']} — {item}" if tone else item
+                prefix = f"{tag} "
+                display = f"{prefix}{tone['emoji']} {tone['label']} — {item}" if tone else f"{prefix}{item}"
                 rows.append({
                     "type": "box",
                     "layout": "horizontal",
@@ -398,9 +412,13 @@ class LineReportRenderer:
         if not flash:
             flash = [str(n) for n in (brief.get('news') or [])][:2]
         news_count = brief.get('news_count')
+        raw_count = brief.get('raw_count')
         news_header = '🗞 ข่าวเด่น'
         if news_count:
-            news_header += f' (คัดจาก {news_count} ข่าวล่าสุด)'
+            if raw_count and raw_count > news_count:
+                news_header += f' (คัด {news_count} จากที่ดึงมา {raw_count} ข่าว)'
+            else:
+                news_header += f' (คัดจาก {news_count} ข่าวล่าสุด)'
         flash_rows = [
             {
                 "type": "box",
@@ -423,15 +441,20 @@ class LineReportRenderer:
             ('🏦', 'จากงบ', cats.get('financials') or [], '#1D4ED8'),
             ('📊', 'จากสถิติ', cats.get('stats') or [], '#B45309'),
         ]
+        # Brief-card bucket tag shown before each reason line.
+        _BRIEF_TAG = {'news': '[จากข่าว]', 'financials': '[จากงบ]', 'stats': '[จากสถิติ]'}
         reason_rows = []
         for emoji, _label, items, color in cat_defs:
+            tag = _BRIEF_TAG.get(_label, f'[{_label}]')
             cleaned_items = [
                 t for t in (_clean_reason(i) for i in (items or []))
                 if t and not _PLACEHOLDER_RE.search(t)
             ][:2]
             for item in cleaned_items:
                 tone = _advice_tone(item)
-                prefix = f"{tone['emoji']} {tone['label']} — " if tone else ''
+                prefix = f"{tag} "
+                if tone:
+                    prefix += f"{tone['emoji']} {tone['label']} — "
                 reason_rows.append({
                     "type": "box",
                     "layout": "horizontal",

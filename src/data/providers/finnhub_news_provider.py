@@ -54,7 +54,9 @@ class FinnhubNewsProvider(NewsDataProvider):
             raise ProviderSkip(f'finnhub error: {exc}')
 
         sources: List[SourceItem] = []
-        for item in items[:8]:
+        # Fetch wide (up to 20) — impact ranking/selection happens later in
+        # analysis.news_cleaning.clean_and_rank, not at the provider level.
+        for item in items[:20]:
             headline = (item.get('headline') or '').strip()
             if not headline:
                 continue

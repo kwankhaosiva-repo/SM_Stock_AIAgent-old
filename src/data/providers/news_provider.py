@@ -19,9 +19,10 @@ class NewsProvider(NewsDataProvider):
         try:
             from global_stock_helper import get_market_news, get_general_market_news
 
-            # 1. Company Specific News
+            # 1. Company Specific News — fetch wide, ranking happens later
+            #    in analysis.news_cleaning.clean_and_rank (not here).
             specific = get_market_news(clean_symbol) or []
-            for item in specific[:5]:
+            for item in specific[:10]:
                 headline = item.get('headline') or item.get('title') or ''
                 if headline:
                     sources.append(
@@ -36,7 +37,7 @@ class NewsProvider(NewsDataProvider):
 
             # 2. Macro Market News
             macro = get_general_market_news() or []
-            for item in macro[:3]:
+            for item in macro[:10]:
                 headline = item.get('headline') or item.get('title') or ''
                 if headline:
                     sources.append(

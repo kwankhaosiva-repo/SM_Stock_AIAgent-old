@@ -40,8 +40,13 @@ def _extract_cited(text: str) -> List[int]:
 
 def _news_digest(
     snapshot: MarketSnapshotData, extra_news: Optional[List[str]]
-) -> List[Dict[str, Any]]:
-    """Cleaned, deduped, impact-ranked news with URLs kept for the News view."""
+) -> tuple[List[Dict[str, Any]], int]:
+    """Cleaned, deduped, impact-ranked news with URLs kept for the News view.
+
+    Returns (digest, raw_count) where raw_count is how many headlines were
+    fetched BEFORE cleaning/dedup/ranking — surfaced on cards as
+    "คัดกรองจาก N จากที่ดึงมา M ข่าว".
+    """
     raw: List[Dict[str, Any]] = [
         {
             'title': s.title,
@@ -53,7 +58,8 @@ def _news_digest(
     ]
     for item in extra_news or []:
         raw.append({'title': item, 'url': '', 'published_at': '', 'source_type': 'news'})
-    return clean_and_rank(raw, max_items=8)
+    raw_count = len(raw)
+    return clean_and_rank(raw, max_items=8), raw_count
 
 
 def _technical_context(snapshot: MarketSnapshotData) -> str:
@@ -246,8 +252,9 @@ def analyze_news(
     the AI turn is delegated to the provider router."""
     router = router or LLMRouter()
     trend = infer_trend(snapshot.price, snapshot.technicals)
-    digest = _news_digest(snapshot, extra_news)
+    digest, raw_count = _news_digest(snapshot, extra_news)
     news_count = len(digest)
+    print(f"[NewsPipeline] raw={raw_count} -> kept={news_count} (clean+dedup+rank, max 8)")
     tech_ctx = _technical_context(snapshot)
     stat_reasons = _stat_reasons(snapshot)
 
@@ -331,6 +338,7 @@ def analyze_news(
             ),
             "provider": router.last_used,
             "news_count": news_count,
+            "raw_count": raw_count,
             "news_cited": cited,
             # Legacy keys for older renderers (web chat / discord)
             "news": flash,
@@ -340,6 +348,7 @@ def analyze_news(
         fallback = _fallback_brief(snapshot, digest)
         fallback["provider"] = "fallback"
         fallback["news_count"] = news_count
+        fallback["raw_count"] = raw_count
         fallback["news_cited"] = []
         fallback["legacy_stats"] = stat_reasons[:2]
         return fallback
