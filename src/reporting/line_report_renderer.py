@@ -20,8 +20,8 @@ _ADVICE_TONES = {
     'Negative': {'emoji': '🔴', 'label': 'Negative', 'color': '#B42318'},
     'Watch': {'emoji': '🟡', 'label': 'Watch', 'color': '#8A6100'},
 }
-_ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดันราคา', 'ลดลง', 'ร่วง', 'ดิ่ง', 'โดนขาย', 'ฟ้อง', 'คดี', 'ปรับลด', 'ต่ำกว่าคาด', 'ขาดทุน', 'sell', 'avoid', 'downside', 'negative', 'threat', 'risk')
-_ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'ช่วงระวัง', 'อยู่ในโซนกลาง', 'ผันผวน', 'watch', 'hold', 'monitor', 'wait')
+_ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดัน', 'ลดลง', 'ร่วง', 'ดิ่ง', 'โดนขาย', 'ฟ้อง', 'คดี', 'ปรับลด', 'ต่ำกว่าคาด', 'ขาดทุน', 'sell', 'avoid', 'downside', 'negative', 'threat', 'risk')
+_ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'ช่วงระวัง', 'โซนกลาง', 'แนวรับ', 'แนวต้าน', 'ผันผวน', 'watch', 'hold', 'monitor', 'wait')
 _ADVICE_POS_KW = ('ซื้อ', 'สะสม', 'โอกาส', 'น่าสนใจ', 'แข็งแรง', 'จุดเข้า', 'เป้าหมาย', 'เพิ่มขึ้น', 'เติบโต', 'ขยาย', 'เพิ่มถือ', 'เพิ่มสัดส่วน', 'ซื้อกิจการ', 'ทะลุ', 'ผ่านแนวต้าน', 'ต่ำกว่ามูลค่า', 'ถูกกว่ามูลค่า', 'ขาขึ้น', 'buy', 'accumulate', 'positive', 'upside', 'growth', 'expand')
 
 
@@ -35,6 +35,12 @@ def _advice_tone(text: str) -> Optional[Dict[str, str]]:
     if any(k in t for k in _ADVICE_POS_KW):
         return _ADVICE_TONES['Positive']
     return None
+
+
+def _reason_tone(text: str) -> Dict[str, str]:
+    """Tone for a reason line — NEVER None: lines without a detectable
+    signal default to 🟡 Watch so every reason line carries a traffic light."""
+    return _advice_tone(text) or _ADVICE_TONES['Watch']
 # Stats reasons that merely restate numbers already shown in the metrics grid.
 _REDUNDANT_STATS_RE = re.compile(r'^(ราคาล่าสุด|RSI\(|ความผันผวน|Volatility|Dividend|P/E)', re.IGNORECASE)
 
@@ -122,7 +128,7 @@ class LineReportRenderer:
                 continue
             rows = []
             for item in items:
-                tone = _advice_tone(item)
+                tone = _reason_tone(item)
                 prefix = f"{tag} "
                 display = f"{prefix}{tone['emoji']} {tone['label']} — {item}" if tone else f"{prefix}{item}"
                 rows.append({
@@ -451,7 +457,7 @@ class LineReportRenderer:
                 if t and not _PLACEHOLDER_RE.search(t)
             ][:2]
             for item in cleaned_items:
-                tone = _advice_tone(item)
+                tone = _reason_tone(item)
                 prefix = f"{tag} "
                 if tone:
                     prefix += f"{tone['emoji']} {tone['label']} — "
@@ -468,7 +474,7 @@ class LineReportRenderer:
         advice_rows = []
         for idx, a in enumerate((brief.get('advice') or [])[:4], 1):
             advice_text = _clean_reason(a, max_len=140)
-            tone = _advice_tone(advice_text)
+            tone = _reason_tone(advice_text)
             number_color = tone['color'] if tone else '#6B7280'
             prefix = f"{tone['emoji']} {tone['label']} — " if tone else ''
             advice_rows.append({
