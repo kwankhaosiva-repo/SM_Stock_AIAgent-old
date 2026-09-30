@@ -24,6 +24,10 @@ _ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสั�
 _ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'ช่วงระวัง', 'โซนกลาง', 'แนวรับ', 'แนวต้าน', 'ผันผวน', 'watch', 'hold', 'monitor', 'wait')
 _ADVICE_POS_KW = ('ซื้อ', 'สะสม', 'โอกาส', 'น่าสนใจ', 'แข็งแรง', 'จุดเข้า', 'เป้าหมาย', 'เพิ่มขึ้น', 'เติบโต', 'ขยาย', 'เพิ่มถือ', 'เพิ่มสัดส่วน', 'ซื้อกิจการ', 'ทะลุ', 'ผ่านแนวต้าน', 'ต่ำกว่ามูลค่า', 'ถูกกว่ามูลค่า', 'ขาขึ้น', 'buy', 'accumulate', 'positive', 'upside', 'growth', 'expand')
 
+# Provenance tag shown before EVERY reason line so the reader always knows
+# which evidence bucket backs it: news / financial statements / statistics.
+_BUCKET_TAGS = {'news': '[จากข่าว]', 'financials': '[จากงบ]', 'stats': '[จากสถิติ]'}
+
 
 def _advice_tone(text: str) -> Optional[Dict[str, str]]:
     """Traffic-light tag for one advice line; None = neutral (no tag)."""
@@ -102,23 +106,13 @@ class LineReportRenderer:
                 legacy_advice.get('reasons') or [report.get('reason') or "ไม่มีข้อมูลเชิงลึก"]
             )
         section_defs = [
-            ('📰 จากข่าว', cats.get('news') or [], '#16803C', False),
-            ('🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8', False),
-            ('📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309', True),
+            ('news', '📰 จากข่าว', cats.get('news') or [], '#16803C', False),
+            ('financials', '🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8', False),
+            ('stats', '📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309', True),
         ]
-        # Bucket tag: the section header already says WHERE, but the user
-        # wants the explicit [จากข่าว]/[จากงบ]/[จากสถิติ] tag on every line.
-        _STOCK_TAG = {
-            'news': '[จากข่าว]',
-            'financials': '[จากงบ]',
-            'stats': '[จากสถิติ]',
-        }
         reason_sections = []
-        for title, items, color, drop_redundant in section_defs:
-            bucket = 'news' if title.startswith('📰') else (
-                'financials' if title.startswith('🏦') else 'stats'
-            )
-            tag = _STOCK_TAG.get(bucket, '[จากสถิติ]')
+        for bucket, title, items, color, drop_redundant in section_defs:
+            tag = _BUCKET_TAGS[bucket]
             items = [
                 t for t in (_clean_reason(i) for i in items)
                 if t and not _PLACEHOLDER_RE.search(t)
@@ -443,15 +437,13 @@ class LineReportRenderer:
         # Categorized reasons: news / financials / stats
         cats = brief.get('reasons') or {}
         cat_defs = [
-            ('📰', 'จากข่าว', cats.get('news') or [], '#16803C'),
-            ('🏦', 'จากงบ', cats.get('financials') or [], '#1D4ED8'),
-            ('📊', 'จากสถิติ', cats.get('stats') or [], '#B45309'),
+            ('news', '📰', cats.get('news') or [], '#16803C'),
+            ('financials', '🏦', cats.get('financials') or [], '#1D4ED8'),
+            ('stats', '📊', cats.get('stats') or [], '#B45309'),
         ]
-        # Brief-card bucket tag shown before each reason line.
-        _BRIEF_TAG = {'news': '[จากข่าว]', 'financials': '[จากงบ]', 'stats': '[จากสถิติ]'}
         reason_rows = []
-        for emoji, _label, items, color in cat_defs:
-            tag = _BRIEF_TAG.get(_label, f'[{_label}]')
+        for bucket, emoji, items, color in cat_defs:
+            tag = _BUCKET_TAGS[bucket]
             cleaned_items = [
                 t for t in (_clean_reason(i) for i in (items or []))
                 if t and not _PLACEHOLDER_RE.search(t)
@@ -641,9 +633,11 @@ class LineReportRenderer:
             # One-line evidence under each stock (news -> financials -> stats)
             reason = _clean_reason(item.get('reason'))
             if reason and not _PLACEHOLDER_RE.search(reason) and not _REDUNDANT_STATS_RE.match(reason):
+                digest_tag = _BUCKET_TAGS.get(str(item.get('reason_bucket') or ''), '')
+                digest_line = f"{digest_tag} {reason}" if digest_tag else reason
                 stock_rows.append(                    {
                         "type": "text",
-                        "text": f"↳ {reason[:100]}{'…' if len(reason) > 100 else ''}",
+                        "text": f"↳ {digest_line[:110]}{'…' if len(digest_line) > 110 else ''}",
                         "size": "xxs",
                         "color": "#6B7280",
                         "wrap": True,
@@ -745,14 +739,12 @@ class LineReportRenderer:
             price = r.get('metrics', {}).get('price', '-')
             outlook = r.get('signal') or r.get('advice', {}).get('outlook') or 'Neutral'
             lines.append(f"• {sym} @ {price} — {outlook}")
-            reason = (
-                ((r.get('reason_categories') or {}).get('news')
-                 or (r.get('reason_categories') or {}).get('financials')
-                 or (r.get('reason_categories') or {}).get('stats')
-                 or [''])[0]
-            )
+            rcats = r.get('reason_categories') or {}
+            bucket = next((b for b in ('news', 'financials', 'stats') if rcats.get(b)), None)
+            reason = (rcats.get(bucket) or [''])[0] if bucket else ''
             if reason:
-                lines.append(f"  ↳ {reason}")
+                tag = _BUCKET_TAGS.get(bucket, '')
+                lines.append(f"  ↳ {tag + ' ' if tag else ''}{reason}")
         lines.append("")
         lines.append("(แสดงแบบข้อความธรรมดา — การ์ดเต็มใช้ไม่ได้ชั่วคราว)")
         return "\n".join(lines)

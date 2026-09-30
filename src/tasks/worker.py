@@ -54,22 +54,23 @@ def process_report_job(payload: Dict[str, Any]):
             attention_count = sum(
                 1 for r in collected_reports if (r.get('signal') == 'Cautious' or r.get('advice', {}).get('outlook') == 'Cautious')
             )
-            top_stocks = [
-                {
+            top_stocks = []
+            for r in collected_reports[:3]:
+                # One-line evidence under each stock: prefer news reason,
+                # then financials, then stats — keeps the digest explainable,
+                # and the bucket travels with it for the [จากข่าว] tag.
+                rcats = r.get('reason_categories') or {}
+                bucket = next(
+                    (b for b in ('news', 'financials', 'stats') if rcats.get(b)),
+                    None,
+                )
+                top_stocks.append({
                     'symbol': r.get('symbol'),
                     'price': f"{r.get('metrics', {}).get('price', 0):,.2f}",
                     'outlook': r.get('signal') or r.get('advice', {}).get('outlook') or 'Neutral',
-                    # One-line evidence under each stock: prefer news reason,
-                    # then financials, then stats — keeps the digest explainable.
-                    'reason': (
-                        ((r.get('reason_categories') or {}).get('news')
-                         or (r.get('reason_categories') or {}).get('financials')
-                         or (r.get('reason_categories') or {}).get('stats')
-                         or [''])[0]
-                    ),
-                }
-                for r in collected_reports[:3]
-            ]
+                    'reason': (rcats.get(bucket) or [''])[0] if bucket else '',
+                    'reason_bucket': bucket,
+                })
             digest_bubble = LineReportRenderer.render_daily_digest_card(
                 summary_text=f"สรุปการวิเคราะห์หุ้น {len(collected_reports)} ตัวใน Watchlist ของคุณ",
                 attention_count=attention_count,

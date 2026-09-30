@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIAgent LineStock — Presentation</title>
+<style>
+  :root {
+    --bg: #F6F7F9;
+    --surface: #FFFFFF;
+    --ink: #111827;
+    --body: #374151;
+    --muted: #6B7280;
+    --line: #E5E7EB;
+    --accent: #1D4ED8;
+    --accent-ink: #1E3A8A;
+    --accent-soft: #EEF2FF;
+    --good: #16803C;
+    --warn: #8A6100;
+    --bad: #B42318;
+    --code-bg: #F1F5F9;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--body);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", "Noto Sans", "Leelawadee UI", "Tahoma", sans-serif;
+    font-size: 17px;
+    line-height: 1.75;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px; }
+
+  /* Top bar */
+  .topbar {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(255,255,255,.92);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar .wrap { display: flex; align-items: center; gap: 16px; height: 54px; }
+  .brand { font-weight: 700; color: var(--ink); font-size: 15px; white-space: nowrap; }
+  .nav { display: flex; gap: 14px; overflow-x: auto; font-size: 13px; flex: 1; }
+  .nav a { color: var(--muted); text-decoration: none; white-space: nowrap; }
+  .nav a:hover { color: var(--accent); }
+  .lang {
+    font-size: 13px; font-weight: 600; color: var(--accent);
+    text-decoration: none; border: 1px solid var(--line);
+    padding: 4px 12px; border-radius: 999px; white-space: nowrap;
+  }
+  .lang:hover { background: var(--accent-soft); }
+  #progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); width: 0; z-index: 60; }
+
+  /* Hero */
+  .hero { padding: 72px 0 40px; }
+  .kicker { font-size: 13px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  h1 { font-size: 42px; line-height: 1.25; color: var(--ink); margin: 12px 0 8px; }
+  .pitch { font-size: 20px; color: var(--body); max-width: 760px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+  .chip {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 16px; font-size: 14px; color: var(--ink);
+  }
+  .chip b { color: var(--accent); font-size: 18px; display: block; line-height: 1.3; }
+
+  /* Sections */
+  section { padding: 44px 0; }
+  .chapter { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .chapter .no {
+    font-size: 13px; font-weight: 700; color: var(--accent);
+    background: var(--accent-soft); border-radius: 8px; padding: 3px 10px;
+    letter-spacing: .06em; white-space: nowrap; flex-shrink: 0;
+  }
+  h2 { font-size: 28px; color: var(--ink); margin: 0; line-height: 1.35; }
+  h3 { font-size: 19px; color: var(--ink); margin: 28px 0 8px; }
+  p { margin: 12px 0; }
+  .lead { font-size: 18px; color: var(--body); margin-top: 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 14px; padding: 22px 26px; margin: 18px 0;
+  }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 16px; margin: 18px 0; }
+  .grid .card { margin: 0; }
+  .card h4 { margin: 0 0 6px; font-size: 16px; color: var(--ink); }
+  .card p { margin: 6px 0 0; font-size: 15px; }
+
+  /* Decision / why boxes */
+  .why { border-left: 4px solid var(--accent); background: var(--surface); border-radius: 0 14px 14px 0; padding: 18px 24px; margin: 18px 0; border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .why .q { font-weight: 700; color: var(--ink); font-size: 16px; }
+  .why .a { margin: 6px 0 0; font-size: 15.5px; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin: 18px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { background: var(--accent-soft); color: var(--accent-ink); font-size: 13.5px; letter-spacing: .02em; }
+  tr:last-child td { border-bottom: none; }
+  td b, td strong { color: var(--ink); }
+
+  /* Code / diagram */
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 12px;
+    padding: 18px 20px; overflow-x: auto; font-size: 12px; line-height: 1.55;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: #0F172A; margin: 18px 0;
+  }
+  code { background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; font-size: 14px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  pre code { background: none; border: none; padding: 0; }
+
+  /* Lists with tag visuals */
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+  .tag { font-size: 13.5px; border-radius: 999px; padding: 4px 12px; background: var(--surface); border: 1px solid var(--line); color: var(--ink); }
+  .tag.g { color: var(--good); } .tag.w { color: var(--warn); } .tag.r { color: var(--bad); }
+
+  ul.tight { padding-left: 22px; }
+  ul.tight li { margin: 6px 0; }
+
+  .note { font-size: 14px; color: var(--muted); }
+  hr.sep { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+
+  footer { border-top: 1px solid var(--line); background: var(--surface); padding: 28px 0 40px; margin-top: 30px; }
+  footer .note { text-align: center; }
+
+  @media (max-width: 640px) {
+    h1 { font-size: 32px; }
+    h2 { font-size: 23px; }
+    body { font-size: 16px; }
+    .nav { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<div class="topbar">
+  <div class="wrap">
+    <span class="brand">AIAgent LineStock</span>
+    <nav class="nav">
+      <a href="#story">จุดเริ่มต้น</a>
+      <a href="#problem">ปัญหา</a>
+      <a href="#why">ทำไมเลือกแบบนี้</a>
+      <a href="#arch">สถาปัตยกรรม</a>
+      <a href="#ai">สายคิดของ AI</a>
+      <a href="#ux">UX</a>
+      <a href="#stack">Tech Stack</a>
+      <a href="#cost">ต้นทุน</a>
+      <a href="#ops">ทดสอบ &amp; Deploy</a>
+      <a href="#next">ถัดไป</a>
+    </nav>
+    <a class="lang" href="presentation-en.html">English</a>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="kicker">Project Presentation · เล่าเรื่องราวของโปรเจกต์</div>
+    <h1>AIAgent LineStock</h1>
+    <p class="pitch">
+      ผู้ช่วยวิเคราะห์หุ้นแบบ<strong>อ้างอิงหลักฐาน</strong> บน LINE / Web / Discord —
+      ขับเคลื่อนด้วยสาย LLM ฟรี Tier ที่ failover อัตโนมัติ,
+      รันบน GCP scale-to-zero ด้วยต้นทุนใกล้เคียง $0 และ<strong>ไม่ยอมให้ AI แต่งตัวเลข</strong>
+    </p>
+    <div class="chips">
+      <div class="chip"><b>8 ค่าย</b>LLM provider chain</div>
+      <div class="chip"><b>$0/เดือน</b>ต้นทุนโดยประมาณ</div>
+      <div class="chip"><b>4 เอเจนต์</b> + reviewer gate</div>
+      <div class="chip"><b>3 ช่องทาง</b>LINE · Web · Discord</div>
+      <div class="chip"><b>40/40</b>tests ผ่าน</div>
+      <div class="chip"><b>30 วิ</b>debounce กันกดซ้ำ</div>
+    </div>
+  </header>
+
+  <!-- 01 STORY -->
+  <section id="story">
+    <div class="chapter"><span class="no">บทที่ 01</span><h2>จุดเริ่มต้น — ทำไมถึงเริ่มทำ</h2></div>
+    <p class="lead">
+      จุดเริ่มต้นคือคำถามสั้น ๆ ว่า: <em>"มีผู้ช่วยดูหุ้นที่เชื่อถือได้ คุยกันบน LINE ได้
+      แล้วบอกได้เสมอว่าแต่ละข้อความอ้างอิงอะไรมา?"</em>
+    </p>
+    <div class="card">
+      <p>
+        เริ่มจากบอทง่าย ๆ ที่ต่อ LLM ตัวเดียวแล้วถามตอบเรื่องหุ้น แต่การใช้งานจริงเผยปัญหาสามชั้นทันที:
+      </p>
+      <ul class="tight">
+        <li><b>LLM ที่ใช้อยู่วันดีคืนดีใช้ไม่ได้</b> — quota หมด, ค่าบริการตัด (เคส Gemini credits หมดจน API ตอบ 402), model ที่ตั้งไว้โดนถอด (404)</li>
+        <li><b>คำตอบที่ได้ “ดูดีแต่ตรวจสอบไม่ได้”</b> — AI มักเดาตัวเลขราคา P/E หรือแต่งเหตุผลลอย ๆ ให้ฟังดูน่าเชื่อ</li>
+        <li><b>ข้อมูลตลาดจริงดึงยาก</b> — หลาย API บล็อก IP คลาวด์, ข้อมูลหุ้นไทยมี official feed แต่เข้าถึงจำกัด</li>
+      </ul>
+      <p>
+        ปัญหาเหล่านี้กลายเป็น <b>หลักการออกแบบสามข้อ</b> ของโปรเจกต์ ที่ทุกส่วนในระบบต้องยึดตาม:
+      </p>
+      <ul class="tight">
+        <li><b>1. ห้ามให้ AI คิดเลข</b> — ตัวเลขทุกตัวต้องมาจาก Python/pandas ที่ตรวจสอบได้ LLM มีหน้าที่ “ตีความ” เท่านั้น</li>
+        <li><b>2. ทุกเหตุผลต้องบอกที่มา</b> — แยกเป็น [จากข่าว] / [จากงบ] / [จากสถิติ] เสมอ พร้อมเลขอ้างอิงข่าวต้นฉบับ</li>
+        <li><b>3. ระบบต้องไม่ล่มเมื่อ provider เดียวมีปัญหา</b> — สาย failover อัตโนมัติทั้ง LLM, ข้อมูลตลาด และการส่งข้อความ</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 02 PROBLEM -->
+  <section id="problem">
+    <div class="chapter"><span class="no">บทที่ 02</span><h2>ปัญหาที่เจอระหว่างทาง และคำตอบของเรา</h2></div>
+    <table>
+      <tr><th style="width:48%"> pain point ที่เจอจริง</th><th>คำตอบที่ลงมือทำ</th></tr>
+      <tr>
+        <td><b>พึ่ง LLM เจ้าเดียว = จุดเสี่ยงเดียว</b><br>quota หมด / ค่าบริการตัด / model ถูกถอด = ระบบหยุดทั้งระบบ</td>
+        <td><b>Provider chain 8 เจ้า</b> พร้อม context-forwarding failover — ล้ม (429/404/timeout/no key) แล้วส่ง prompt + context ชุดเดิมไปเจ้าถัดไปอัตโนมัติ พร้อม 404 self-heal ดึงรายการ /models จริงมาเลือก model ใหม่</td>
+      </tr>
+      <tr>
+        <td><b>คำตอบจาก AI กำกวม / แต่งตัวเลข</b><br>เชื่อไม่ได้ แยกไม่ออกว่าข้อไหนมีหลักฐาน</td>
+        <td><b>Evidence-based contract</b> — เหตุผลทุกข้อจัด 3 หมวด (ข่าว/งบ/สถิติ) ตัวเลขคำนวณจากโค้ด deterministic, news ทุกชิ้นมี URL ต้นฉบับจริง ที่มาจาก digest ไม่ใช่ที่ AI แต่ง</td>
+      </tr>
+      <tr>
+        <td><b>API ข้อมูลตลาดบล็อก cloud IP / มีค่าใช้จ่าย</b><br>โดยเฉพาะ finnhub, Settrade sandbox เข้าจาก IP ต่างประเทศไม่ได้</td>
+        <td><b>Data provider chain</b> — Settrade (official ไทย) → Yahoo → FMP → home relay ผ่าน Cloudflare Tunnel และ news chain: Finnhub company news → Google News RSS</td>
+      </tr>
+      <tr>
+        <td><b>ผู้ใช้กดปุ่มซ้ำ = AI ถูกเรียกซ้ำ = การ์ดซ้ำ / ค่า quota บวม</b></td>
+        <td><b>Press debounce 30 วิ</b> (lock ต่อ user+action+symbol) + <b>snapshot cache 15 นาที</b> (shared ทุกคน) + <b>idempotency key</b> (UUID retry key) กันส่งซ้ำทุกชั้น</td>
+      </tr>
+      <tr>
+        <td><b>การ์ด LINE ยาว อ่านยาก เยอะไปหมด</b></td>
+        <td><b>Progressive disclosure + scanable tags</b> — สรุปสั้น 2 บรรทัดก่อน, กด News คดูเต็ม, ทุกเหตุผลมี tag แหล่งที่มา + ป้ายไฟจราจร 🟢🔴🟡 ให้สแกนก่อนอ่าน</td>
+      </tr>
+    </table>
+  </section>
+
+  <!-- 03 WHY -->
+  <section id="why">
+    <div class="chapter"><span class="no">บทที่ 03</span><h2>ทำไมถึงเลือกวิธีนี้ — เหตุผลเชิงออกแบบ</h2></div>
+    <p class="lead">ทุกทางเลือกเชิงเทคนิคมาจากปัญหาในบทที่ 02 ไม่ใช่เลือกเพราะ "ฮิต"</p>
+
+    <div class="why">
+      <div class="q">ทำไมต้องเป็นสาย failover หลายเจ้า ไม่ใช่ API เดียวที่เสถียร?</div>
+      <p class="a">
+        เพราะฟรี Tier ของแต่ละค่าย <b>ไม่มีอันไหนรับประกันได้</b> — โควตารายวันหมดเร็ว, เปลี่ยน model บ่อย, บางค่ายปิดตัวลง การผูกกับเจ้าเดียวเท่ากับยอมรับจุดเสี่ยงเดียว<br>
+        ทางออกแบบ: ลำดับเรียก configurable (<code>LLM_PROVIDER_ORDER</code>) — ตอนนี้
+        <code>groq → cerebras → mistral → cloudflare → openrouter → unorouter → router9 → ollama</code>
+        ล้มเหลวแล้ว<b>ส่ง prompt + context ชุดเดิมต่อไปให้เจ้าถัดไป</b> (ไม่ใช่เริ่มใหม่) และถ้า model โดนถอด (404) จะดึง <code>/models</code> จริงมาเลือกตัวที่ใกล้ที่สุดแล้ว cache ไว้ — env ที่ตั้ง model ชื่อเก่าไว้จึงไม่ทำให้ระบบพัง
+      </p>
+    </div>
+
+    <div class="why">
+      <div class="q">ทำไมคิดเลขด้วย Python ไม่ใช่ให้ LLM คำนวณ?</div>
+      <p class="a">
+        เพราะโมเดลภาษา<b>ไม่เหมาะกับตัวเลข</b> — ราคา RSI หรือ P/E ที่ AI "จำ" ได้คือตัวเลขที่แต่งขึ้นมา ทำให้คำแนะนำดูน่าเชื่อแต่ใช้ไม่ได้จริง<br>
+        ทางออกแบบ: <code>indicators.py</code> (RSI-14, SMA-20/50, ความผันผวน, แนวรับ-ต้านจาก 30 วัน, 52 สัปดาห์) และ <code>financial_ratios.py</code> (D/E, ROE, P/B, net margin) คำนวณจาก pandas/ตัวเลขงบจริง — LLM ได้รับตัวเลขเหล่านี้เป็น <b>บริบท</b> แล้วแค่ตีความและเรียบเรียง
+      </p>
+    </div>
+
+    <div class="why">
+      <div class="q">ทำไมต้องมี chain สำหรับข้อมูลตลาดด้วย?</div>
+      <p class="a">
+        เพราะข้อมูลการเงินก็มีจุดเสี่ยงคล้าย LLM: Settrade sandbox จำกัด IP ไทย, finnhub บน GCP โดนบล็อก, Yahoo บางครั้ง rate-limit<br>
+        ทางออกแบบ: สาย provider ที่ <b>ข้ามไปตัวถัดไปเมื่อเจอ skip</b> — หุ้นไทย: Settrade → home relay (IP บ้านผ่าน Cloudflare Tunnel) → helper → yfinance; หุ้นทั่วโลก: relay → yfinance และข่าว: Finnhub (US, ทางการ) → Google News RSS (ไทย + มาโคร)
+      </p>
+    </div>
+
+    <div class="why">
+      <div class="q">ทำไมย้ายจาก PostgreSQL/SQLAlchemy มาเป็น Firestore?</div>
+      <p class="a">
+        เพราะระบบนี้เป็น <b>webhook + cache + audit log</b> ไม่ใช่ relational workflow ที่ซับซ้อน — การใช้ ORM เต็มรูปแบบทำให้มี migration, connection pool, cold start ที่ไม่จำเป็น<br>
+        ทางออกแบบ: <code>store.py</code> ชั้นเดียวสอง backend — Firestore (prod, ADC บน Cloud Run ไม่ต้องตั้ง secret เพิ่ม, lazy init) / in-memory (dev &amp; test, <code>DATA_BACKEND=memory</code>) ย้ายออกจาก Supabase เมื่อ ก.ย. 2026 ลบ ORM กับ migration ทิ้งหมด
+      </p>
+    </div>
+
+    <div class="why">
+      <div class="q">ทำไมใช้ LangGraph?</div>
+      <p class="a">
+        เพราะงานวิเคราะห์ 1 ครั้ง = 4 หน้าที่ที่รันขนานกันได้ (ข่าว / พื้นฐาน+เทคนิค / คำแนะนำ / ตรวจสอบ) และต้องการ<b>จุดตรวจสอบกลาง</b> บันทึกผลแต่ละขั้นลง audit trail<br>
+        ทางออกแบบ: <code>report_workflow.py</code> — StateGraph แบบ fan-out ขนาน + reflection loop ให้ RiskReviewer ส่งกลับมาแก้ และ log ทุก stage ลง Firestore (<code>analysis_runs</code> / <code>agent_outputs</code>)
+      </p>
+    </div>
+
+    <div class="why">
+      <div class="q">ทำไมเป็น Flask เล็ก ๆ ไม่ใช่ framework ใหญ่?</div>
+      <p class="a">
+        งานหลักคือรับ webhook, โยนงานเข้าคิว, คืนคำตอบ — ไม่ต้องการ ORM, DI container หรือ overhead<br>
+        ทางออกแบบ: Flask 3 + gunicorn (timeout 240 วิ รองรับการรอ AI), คิวเป็น RQ/Redis ตอน prod และ fallback เป็น thread-pool บนเครื่อง dev — โค้ดเดียวกันรันได้ทั้งสองแบบ
+      </p>
+    </div>
+  </section>
+
+  <!-- 04 ARCH -->
+  <section id="arch">
+    <div class="chapter"><span class="no">บทที่ 04</span><h2>สถาปัตยกรรม — ภาพรวมการเดินของข้อมูล</h2></div>
+<pre>
+Channels:  LINE / Web / Discord
+              │
+     Chat dispatch layer (คำสั่งเดียวกันทุกช่องทาง — chat_service.py)
+              │
+     Flask webhook ──► Job queue (RQ/Redis ↔ local thread-pool fallback)
+              │              │
+   Schedule dispatcher ◄─────┘   (cron scan ตารางเตือน)
+              │
+   Market Snapshot Service ──► Firestore cache (TTL 15 นาที, ใช้ร่วมทุกคน)
+              │                    ├─ data provider chain (Settrade/relay/Yahoo)
+              │                    └─ news chain (Finnhub → Google News RSS)
+              ▼
+   4-agent workflow  (LangGraph — รันขนาน + audit log)
+   ┌ NewsContextAgent ─────┐
+   └ Fund/Tech Agent ──────┤──► PersonalizedAdviceAgent ──► RiskEvidenceReviewer
+                           │        (3 หมวดเหตุผล)            (gate: approve/revise/reject)
+              │
+   Flex renderers ──► push / reply  (พร้อม plain-text fallback)
+</pre>
+    <h3>ชั้นความทนทานสามชั้น</h3>
+    <div class="grid">
+      <div class="card">
+        <h4>1 · LLM chain</h4>
+        <p>8 ค่ายเรียงตามลำดับที่ตั้งไว้ ล้มแล้วส่งต่อ context อัตโนมัติ + 404 self-heal จาก /models จริง</p>
+      </div>
+      <div class="card">
+        <h4>2 · Data chain</h4>
+        <p>ข้อมูลราคา/งบ/ข่าว ข้าม provider เมื่อโดน skip หรือบล็อก รวมถึง home relay ผ่าน Cloudflare Tunnel</p>
+      </div>
+      <div class="card">
+        <h4>3 · Delivery</h4>
+        <p>UUID retry key + idempotency ใน Firestore = ไม่ส่งซ้ำ, Flex ถูกปฏิเสธก็ยังมี plain-text fallback ไม่เงียบ</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 AI -->
+  <section id="ai">
+    <div class="chapter"><span class="no">บทที่ 05</span><h2>สายคิดของ AI — 4 เอเจนต์ กฎอย่างหนึ่ง</h2></div>
+    <p class="lead">
+      ระบบไม่ได้ “คุยกับ chatbot หนึ่งตัว” แต่แบ่งงานเป็น 4 เอเจนต์ แต่ละตัวมี
+      <b>soul</b> (ไฟล์ Markdown ของ system prompt) เก็บใน git แก้ไข ตรวจสอบเวอร์ชันได้
+    </p>
+    <table>
+      <tr><th style="width:30%">เอเจนต์</th><th>หน้าที่</th></tr>
+      <tr><td><b>NewsContextAgent</b></td><td>กรอง-จัดอันดับข่าวบริษัท + ข่าวมหภาค เก็บ provenance ครบ (หัวข้อ, สำนัก, URL, เวลา)</td></tr>
+      <tr><td><b>FundamentalTechnicalAgent</b></td><td>ตีความราคา, P/E, ปันผล, ตัวชี้วัดเทคนิคที่คำนวณไว้แล้ว — <b>ห้ามเดาราคา ห้ามคำนวณ indicator เอง</b></td></tr>
+      <tr><td><b>PersonalizedAdviceAgent</b></td><td>สังเคราะห์เข้ากับสไตล์การลงทุน เป้าหมาย ความเสี่ยงที่รับได้ ของผู้ใช้ → เหตุผล 3 หมวด + ความเสี่ยง + สิ่งต้องติดตาม</td></tr>
+      <tr><td><b>RiskEvidenceReviewer</b></td><td>ผู้ตรวจสอบอิสระ — ปฏิเสธข้อความที่ไม่มีหลักฐาน, ข้อมูลเก่า &gt;15 นาที, คำต้องห้าม (“การันตี”, “กำไรแน่นอน”) คืน <code>approve / revise / reject</code></td></tr>
+    </table>
+    <div class="why">
+      <div class="q">สัญญาอ้างอิงหลักฐาน (evidence contract) ทำงานอย่างไร?</div>
+      <p class="a">
+        ข่าวทุกชิ้นถูกทำความสะอาดและจัดอันดับก่อน (ตัด URL ขยะ, ตัดหัวข้อซ้ำข้ามสำนัก, ให้ impact score)
+        แล้วใส่เลขลำดับ <code>[1] [2] …</code> เข้า prompt — LLM ต้องอ้างเลขเหล่านี้เท่านั้น
+        ตัวเลข citation ที่โชว์บนการ์ด detail จึงมาจาก digest จริง ส่วนบนการ์ดสรุปจะถูกตัดออกเพื่อความอ่านง่าย
+        และข้อความทุกบรรทัดถูก clean: ตัด URL, ตัด citation, ตัด placeholder “ไม่มีข้อมูล…”
+      </p>
+    </div>
+  </section>
+
+  <!-- 06 UX -->
+  <section id="ux">
+    <div class="chapter"><span class="no">บทที่ 06</span><h2>UX Engineering — ออกแบบให้อ่านจบใน 5 วินาที</h2></div>
+
+    <div class="card">
+      <h4>⏳ Instant ack + กันกดซ้ำ</h4>
+      <p>ทุกปุ่มตอบ “กำลังประมวลผล…” ทันที ไม่มี dead air และล็อก 30 วินาทีต่อ user+action+symbol — กดซ้ำได้คำตอบว่า “กำลังทำอยู่” แทนที่จะยิง AI ซ้ำ</p>
+    </div>
+    <div class="card">
+      <h4>📚 Progressive disclosure</h4>
+      <p>การ์ดสรุปโชว์หัวข้อข่าวแบบเทเลกราฟ 2 บรรทัด — กดปุ่ม News คดูการ์ดเต็ม เรียงตามผลกระทบ พร้อมปุ่มเปิดต้นฉบับ (URL มาจาก digest เท่านั้น ไม่ใช่ที่ AI แต่ง)</p>
+    </div>
+    <div class="card">
+      <h4>🏷 เหตุผลแยก 3 หมวด — พร้อม tag หน้าทุกบรรทัด</h4>
+      <p>ทุกเหตุผลขึ้นต้นด้วย tag แหล่งที่มาเสมอ ให้ผู้อ่านรู้ทันทีว่าข้อไหนอ้างอิงอะไร:</p>
+      <div class="tags">
+        <span class="tag">📰 [จากข่าว]</span>
+        <span class="tag">🏦 [จากงบ]</span>
+        <span class="tag">📊 [จากสถิติ]</span>
+      </div>
+      <p class="note">ใช้กับทุกการ์ด: stock card, market brief และ daily digest (ทั้งแบบ flex และ plain-text fallback)</p>
+    </div>
+    <div class="card">
+      <h4>🚦 ป้ายไฟจราจรทุกบรรทัด</h4>
+      <p>ทุกบรรทัดคำแนะนำและเหตุผลมีป้ายกำกับให้สแกนก่อนอ่าน — ไม่เดาเองว่าดีร้าย:</p>
+      <div class="tags">
+        <span class="tag g">🟢 Positive</span>
+        <span class="tag r">🔴 Negative</span>
+        <span class="tag w">🟡 Watch</span>
+      </div>
+      <p class="note">จำแนกด้วย keyword classifier (ไทย+อังกฤษ) กรณีไม่แน่ใจจะ fallback เป็น 🟡 Watch เสมอ — ไม่มีบรรทัดไหนไร้ป้าย</p>
+    </div>
+    <div class="card">
+      <h4>🗞 ข่าว: ดึงกว้างก่อน คัดทีหลัง — บอกตัวเลขให้เห็น</h4>
+      <p> pipeline ข่าวไม่ได้ดึงมา 8 ข่าวแล้วใช้เลย แต่ <b>ดึงกว้างก่อนแล้วคัด</b>:</p>
+      <ul class="tight">
+        <li><b>ดึง (raw)</b>: Finnhub company news สูงสุด 20 ชิ้น (7 วันล่าสุด, US) หรือ Google News RSS 10 ข่าวบริษัท + 10 ข่าวมหภาค</li>
+        <li><b>คัด (clean + dedupe + rank)</b>: ตัดขยะ/หัวข้อซ้ำ ให้ impact score แล้วเลือก <b>Top 8</b></li>
+        <li><b>รายงาน</b>: log <code>[NewsPipeline] raw=M -&gt; kept=N</code> และการ์ดโชว์ “<b>คัด 8 จากที่ดึงมา 23 ข่าว</b>” ให้รู้ว่ามีการคัดจริง</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 07 STACK -->
+  <section id="stack">
+    <div class="chapter"><span class="no">บทที่ 07</span><h2>Tech Stack — ใช้อะไร และทำไม</h2></div>
+    <table>
+      <tr><th style="width:22%">ชั้น</th><th style="width:34%">เทคโนโลยี</th><th>ทำไมเลือกตัวนี้</th></tr>
+      <tr><td>ภาษา &amp; Web</td><td>Python 3.11, Flask 3, gunicorn</td><td>eco-system ข้อมูลการเงิน (pandas/yfinance) แน่นที่สุด; Flask เบาพอสำหรับ webhook; gunicorn timeout 240 วิ รองรับงานรอ AI</td></tr>
+      <tr><td>ช่องทาง</td><td>line-bot-sdk, discord.py, web chat</td><td>ผู้ใช้อยู่บน LINE อยู่แล้ว (Flex Message แสดงการ์ดแบบ rich); Discord กับ Web เป็นช่องทางเสริมใช้ command layer เดียวกัน</td></tr>
+      <tr><td>LLM</td><td>สาย OpenAI-compatible 8 เจ้า + google-genai</td><td>คงค่าใช้จ่ายเป็น $0 ด้วย free tier หลายค่าย; interface เดียวกันทำให้สลับเจ้าได้โดยไม่แตะโค้ดธุรกิจ</td></tr>
+      <tr><td>จัดระเบียบงาน</td><td>LangGraph</td><td>fan-out 4 เอเจนต์ขนาน + reflection loop ( reviewer ส่งกลับให้แก้) + state กลางเก็บ audit ได้</td></tr>
+      <tr><td>ข้อมูลตลาด</td><td>yfinance, pandas, Finnhub, Google News RSS, Settrade Open, FMP</td><td>ครอบคลุมไทย+โลก; มี fallback เมื่อเจ้าใดเจ้าหนึ่งบล็อกหรือไม่มี key</td></tr>
+      <tr><td>เก็บข้อมูล</td><td>Firestore (prod) / in-memory (dev)</td><td>ไม่มี ORM ไม่มี migration; ADC บน Cloud Run ไม่ต้องตั้ง secret เพิ่ม; in-memory ทำให้รัน tests ได้โดยไม่ต้องต่อ network</td></tr>
+      <tr><td>คิว &amp; Schedule</td><td>redis + rq (ทางเลือก), apscheduler</td><td>แยก webhook ออกจากงานยาว (รอ AI หลายวินาที); dev ไม่มี Redis ก็ใช้ thread-pool แทน</td></tr>
+      <tr><td>ตรวจสอบข้อมูล</td><td>Pydantic v2</td><td>คำตอบ JSON จากทุกเอเจนต์/LLM ต้องผ่าน schema — ไม่ผ่านคือ fallback ขึ้นตัวถัดไป ไม่ปล่อยคำตอบหน้าผิดออกจาก AI</td></tr>
+      <tr><td>Deploy</td><td>Docker → GCP Cloud Run, Secret Manager</td><td>scale-to-zero (min-instances 0) ค่าใช้จ่ายใกล้ $0; secret รวมเป็นไฟล์ env เดียว (<code>env_stocks</code>)</td></tr>
+    </table>
+  </section>
+
+  <!-- 08 COST -->
+  <section id="cost">
+    <div class="chapter"><span class="no">บทที่ 08</span><h2>เรื่องต้นทุน — จาก hobby สู่ production</h2></div>
+    <table>
+      <tr><th>ส่วนประกอบ</th><th style="width:35%">ต้นทุน</th></tr>
+      <tr><td>LLM ทั้งระบบ</td><td><b>$0</b> — free tier รวม 8 ค่าย + Ollama รันบนเครื่องตอน dev</td></tr>
+      <tr><td>Cloud Run</td><td><b>≈ $0</b> — scale-to-zero, min-instances 0, max 2 instances</td></tr>
+      <tr><td>Firestore</td><td>free tier (SP-SB) ครอบคลุมงาน hobby</td></tr>
+      <tr><td>Secret Manager / Scheduler</td><td>free tier</td></tr>
+      <tr><td><b>รวม</b></td><td><b>≈ $0/เดือน</b> สำหรับบอทส่วนตัว</td></tr>
+    </table>
+    <p class="note">บทเรียนสำคัญของเรื่องนี้: ต้นทุน LLM จริง ๆ ไม่ใช่แค่ค่า API — แต่คือ “เวลาที่ระบบล่มเพราะค่า API เปลี่ยน” สาย failover คือ insurance ที่ถูกที่สุด</p>
+  </section>
+
+  <!-- 09 OPS -->
+  <section id="ops">
+    <div class="chapter"><span class="no">บทที่ 09</span><h2>ทดสอบ &amp; ส่งขึ้น Production</h2></div>
+    <div class="card">
+      <h4>การทดสอบ</h4>
+      <ul class="tight">
+        <li><b>40 unit tests</b> รันแบบ offline ได้ (<code>DATA_BACKEND=memory python -m unittest discover -s tests</code>) — ไม่ต้องมี network ไม่ต้องมี key</li>
+        <li>ครอบคลุม: การ render การ์ดทุกประเภท, หมวดเหตุผล, tone classifier, idempotency, cache, workflow</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>การ deploy</h4>
+      <ul class="tight">
+        <li><b>Git push → Cloud Run auto-deploy</b> (asia-southeast1, service: <code>agent-stocks-service</code>)</li>
+        <li>Secret: อัปโหลดไฟล์ <code>.env</code> ทั้งหมดเป็น secret ชื่อ <code>env_stocks</code> mount เป็น <code>ENV_STOCKS</code> — ค่าใน secret override default ใน <code>config.py</code></li>
+        <li>gunicorn: <code>--timeout 240 --max-requests 200</code> กัน worker ค้าง/หนักเกินไป</li>
+        <li>debug ผ่าน <code>/health</code> และ <code>/debug/config</code> (โชว์ว่า env ตัวไหนถึง container โดยไม่โชว์ค่า)</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 10 NEXT -->
+  <section id="next">
+    <div class="chapter"><span class="no">บทที่ 10</span><h2>ถัดไป &amp; สคริปต์เดโม 5 นาที</h2></div>
+    <div class="grid">
+      <div class="card">
+        <h4>BigQuery analytics</h4>
+        <p>ส่ง <code>analysis_runs</code> ไปลง dataset <code>stocks_query</code> (สร้างแล้ว ยังไม่ต่อ) เพื่อทำ dashboard ความแม่นยำของคำแนะนำย้อนหลัง</p>
+      </div>
+      <div class="card">
+        <h4>Settrade production</h4>
+        <p>ข้อมูลหุ้นไทยระดับ production ด้วย credential จริง แทน sandbox ที่จำกัดเฉพาะ IP ไทย</p>
+      </div>
+      <div class="card">
+        <h4>LangGraph conditional routing</h4>
+        <p>นอกเหนือจาก fan-out ปัจจุบัน: ข้ามการวิเคราะห์แพง ๆ เมื่อเป็นคำถามง่าย ๆ ( branching ตามชนิดคำถาม)</p>
+      </div>
+    </div>
+
+    <h3>เดโม 5 นาที</h3>
+    <ul class="tight">
+      <li>เพิ่มหุ้น “PTT” ผ่าน rich menu บน LINE → ยืนยันเป็น carousel</li>
+      <li>กด <b>News</b> → ack ทันที → การ์ดเรียงตามผลกระทบ พร้อมปุ่มเปิดต้นฉบับ + บอก “คัด X จากที่ดึงมา Y ข่าว”</li>
+      <li>กด <b>Why?</b> → แนวรับ-ต้านพร้อมวิธีได้มา + เหตุผล 3 หมวด มี tag <code>[จากข่าว]</code>/<code>[จากงบ]</code>/<code>[จากสถิติ]</code> และป้าย 🟢🔴🟡 ทุกบรรทัด</li>
+      <li>กด <b>Financials</b> → อัตราส่วนพร้อมสูตร คำนวณจากงบจริง</li>
+      <li>เปิด Cloud Run logs → เห็น failover ทำงานจริง (เช่น groq 404 → เจ้าถัดไป)</li>
+      <li>เปิด <code>/debug/config</code> → ยืนยัน secret mount โดยไม่เปิดเผยค่า</li>
+    </ul>
+  </section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <p class="note">
+      เอกสารนี้สร้างจาก <b>README.md</b>, <b>docs/presentation-brief.md</b> และโค้ดจริงในโปรเจกต์ ·
+      ข้อมูลทั้งหมดเพื่อการศึกษา ไม่ใช่คำแนะนำการลงทุน
+    </p>
+  </div>
+</footer>
+
+<script>
+  const bar = document.getElementById('progress');
+  addEventListener('scroll', () => {
+    const h = document.documentElement;
+    const p = h.scrollTop / (h.scrollHeight - h.clientHeight);
+    bar.style.width = (p * 100) + '%';
+  }, { passive: true });
+</script>
+</body>
+</html>
