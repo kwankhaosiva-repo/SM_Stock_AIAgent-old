@@ -148,11 +148,14 @@ class MarketSnapshotService:
         from analysis.indicators import calculate_indicators
 
         history = [float(x) for x in raw.get('history', []) if x is not None]
+        raw_volumes = raw.get('volumes') or []
+        volumes = [float(v) for v in raw_volumes if v is not None]
         technicals = raw.get('technicals') or {}
 
         # Precompute indicators from historical candles if available
+        # (volumes power OBV; when missing, OBV degrades to 'N/A').
         if history:
-            computed_indicators = calculate_indicators(history)
+            computed_indicators = calculate_indicators(history, volumes or None)
             for k, v in computed_indicators.items():
                 if k not in technicals or technicals[k] in ('N/A', '-', None):
                     technicals[k] = v

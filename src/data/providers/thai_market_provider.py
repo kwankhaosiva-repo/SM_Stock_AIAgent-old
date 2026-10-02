@@ -24,14 +24,17 @@ class ThaiMarketDataProvider(MarketDataProvider):
             from thai_stock_helper import SettradeHelper
             helper = SettradeHelper()
             quote = helper.get_quote(clean_symbol)
-            candles = helper.get_candles(clean_symbol, limit=60)
+            # ~1y of daily bars so EMA200/MACD/golden cross can be computed.
+            candles = helper.get_candles(clean_symbol, limit=250)
             if quote and quote.get('price', 0) > 0:
-                history = candles.get('history', []) if candles else []
+                history = candles.get('close', []) if candles else []
+                volumes = candles.get('volume', []) if candles else []
                 return {
                     "price": float(quote['price']),
                     "pe_ratio": float(quote.get('pe', 0)) if quote.get('pe') else None,
                     "div_yield": float(quote.get('yield', 0)) if quote.get('yield') else None,
                     "history": [float(p) for p in history if p is not None],
+                    "volumes": [float(v) for v in volumes if v is not None],
                     "technicals": {
                         "market_cap": "N/A",
                     },

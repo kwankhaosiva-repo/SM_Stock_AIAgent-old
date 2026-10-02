@@ -18,6 +18,10 @@ class FundamentalTechnicalAgent(BaseAgent):
             ('RSI(14)', 'rsi'),
             ('SMA(20)', 'sma20'),
             ('SMA(50)', 'sma50'),
+            ('EMA(20)', 'ema20'),
+            ('EMA(50)', 'ema50'),
+            ('EMA(200)', 'ema200'),
+            ('MACD histogram', 'macd_hist'),
             ('ความผันผวน 30 วัน', 'volatility'),
             ('แนวรับ', 'support'),
             ('แนวต้าน', 'resistance'),
@@ -35,6 +39,11 @@ class FundamentalTechnicalAgent(BaseAgent):
                 val = snapshot.technicals.get(key)
                 if val not in (None, '', 'N/A', '-'):
                     evidence.append(f'{label}: {val}')
+
+        # Bollinger needs both bounds readably
+        boll_u = snapshot.technicals.get('boll_upper')
+        if boll_u not in (None, '', 'N/A', '-') and snapshot.technicals.get('boll_lower') not in (None, '', 'N/A', '-'):
+            evidence.append(f'Bollinger(20): {snapshot.technicals.get("boll_lower")} - {boll_u}')
 
         fallback = AgentFinding(
             agent_name=self.name,

@@ -4,6 +4,7 @@ import re
 from typing import Any, Dict, List, Optional
 from analysis.chart_service import ChartService
 from analysis.news_cleaning import clean_headline
+from reporting.indicator_view import GLOSSARY, build_indicator_sections
 
 # Reason strings that carry no information for the reader.
 _PLACEHOLDER_RE = re.compile(r'ไม่มีข้อมูล|ไม่พบข้อมูล|ไม่สามารถ|ประเมินไม่ได้|^\s*[-–—]?\s*$')
@@ -268,6 +269,47 @@ class LineReportRenderer:
             ],
         })
 
+        # Technical indicator sections — short / mid / long term, each line
+        # carries a traffic light + a beginner explanation of WHAT the value
+        # means and WHY it reads positive/negative (deterministic rules).
+        indicator_sections = build_indicator_sections(technicals, price)
+        if indicator_sections:
+            body_contents.append({"type": "separator", "margin": "md"})
+            body_contents.append({
+                "type": "text",
+                "text": "🔎 บทวิเคราะห์เชิงเทคนิค (แยกตามช่วงเวลา):",
+                "size": "xs", "weight": "bold", "color": "#374151", "margin": "md",
+            })
+            for sec in indicator_sections:
+                body_contents.append({
+                    "type": "text", "text": sec['title'],
+                    "size": "xs", "weight": "bold", "color": "#1D4ED8", "margin": "md",
+                })
+                sec_rows = []
+                for line in sec['lines']:
+                    sec_rows.append({
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "xs",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"• {line['label']}: {line['value']} {line['emoji']}",
+                                "size": "xs", "weight": "bold", "color": "#1F2937", "wrap": True,
+                            },
+                            {
+                                "type": "text",
+                                "text": f"{line['tone_label']} — {line['explain']}",
+                                "size": "xxs", "color": "#6B7280", "wrap": True, "margin": "xs",
+                                "offsetStart": "12px",
+                            },
+                        ],
+                    })
+                body_contents.append({
+                    "type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs",
+                    "contents": sec_rows,
+                })
+
         # Reasons section
         body_contents.extend([
             {"type": "separator", "margin": "md"},
@@ -358,10 +400,23 @@ class LineReportRenderer:
                     ],
                 },
                 {
-                    "type": "button",
-                    "style": "link",
-                    "height": "sm",
-                    "action": {"type": "postback", "label": "⏰ Schedule รายงาน", "data": f"action=set_time"},
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "xs",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "secondary",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "📖 คำศัพท์ (มือใหม่)", "data": "action=glossary"},
+                        },
+                        {
+                            "type": "button",
+                            "style": "link",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "⏰ Schedule รายงาน", "data": f"action=set_time"},
+                        },
+                    ],
                 },
             ],
         }
@@ -728,6 +783,56 @@ class LineReportRenderer:
                 ],
             },
         }
+
+    @classmethod
+    def render_glossary_card(cls) -> Dict[str, Any]:
+        """Beginner glossary bubble ("📖 คำศัพท์") — one entry per term with
+        what it is / how to read it / why it matters. Static content, no LLM."""
+        entries = []
+        for item in GLOSSARY:
+            entries.append({
+                "type": "box",
+                "layout": "vertical",
+                "margin": "md",
+                "contents": [
+                    {"type": "text", "text": f"{item['term']}", "size": "sm", "weight": "bold", "color": "#1D4ED8", "wrap": True},
+                    {"type": "text", "text": f"คืออะไร: {item['what']}", "size": "xxs", "color": "#374151", "wrap": True, "margin": "xs"},
+                    {"type": "text", "text": f"อ่านยังไง: {item['how']}", "size": "xxs", "color": "#374151", "wrap": True, "margin": "xs"},
+                    {"type": "text", "text": f"สำคัญยังไง: {item['why']}", "size": "xxs", "color": "#6B7280", "wrap": True, "margin": "xs"},
+                ],
+            })
+
+        return {
+            "type": "bubble",
+            "size": "mega",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {"type": "text", "text": "📖 คำศัพท์สำหรับมือใหม่", "weight": "bold", "size": "lg", "color": "#111827"},
+                    {"type": "text", "text": "อธิบายตัวชี้วัดทุกตัวที่ใช้ในรายงาน — กดดูครั้งเดียวใช้ได้ตลอด", "size": "xxs", "color": "#6B7280", "wrap": True, "margin": "xs"},
+                    {"type": "separator", "margin": "md"},
+                    *entries,
+                    {"type": "separator", "margin": "md"},
+                    {
+                        "type": "text",
+                        "text": "ตัวชี้วัดทางเทคนิคดูจากข้อมูลในอดีต ไม่รับประกันทิศทางราคาในอนาคต",
+                        "size": "xxs", "color": "#9CA3AF", "wrap": True, "align": "center", "margin": "sm",
+                    },
+                ],
+            },
+        }
+
+    @staticmethod
+    def render_glossary_text() -> str:
+        """Plain-text glossary fallback when Flex is rejected."""
+        lines = ["📖 คำศัพท์สำหรับมือใหม่"]
+        for item in GLOSSARY:
+            lines.append(f"\n• {item['term']}")
+            lines.append(f"  คืออะไร: {item['what']}")
+            lines.append(f"  อ่านยังไง: {item['how']}")
+        lines.append("\nตัวชี้วัดดูจากอดีต ไม่รับประกันทิศทางราคาอนาคต")
+        return "\n".join(lines)
 
     @staticmethod
     def render_daily_digest_text(summary_text: str, collected_reports: List[Dict[str, Any]]) -> str:

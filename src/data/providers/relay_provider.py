@@ -50,5 +50,6 @@ class RelayMarketDataProvider(MarketDataProvider):
             'pe_ratio': data.get('pe_ratio'),
             'div_yield': data.get('div_yield'),
             'history': [float(p) for p in (data.get('history') or []) if p is not None],
+            'volumes': [float(v) for v in (data.get('volumes') or []) if v is not None],
             'technicals': data.get('technicals') or {},
         }

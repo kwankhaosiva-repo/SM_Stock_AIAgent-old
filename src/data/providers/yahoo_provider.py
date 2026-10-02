@@ -24,11 +24,17 @@ class YahooMarketDataProvider(MarketDataProvider):
         div_yield = None
         market_cap = "N/A"
         history_prices = []
+        history_volumes = []
 
         try:
-            hist = ticker.history(period="60d")
+            # 1y window (~250 sessions) so EMA200 / MACD / Bollinger / golden
+            # cross have enough bars; 60d was too short for long-term views.
+            hist = ticker.history(period="1y")
             if not hist.empty and 'Close' in hist:
-                history_prices = [float(p) for p in hist['Close'].dropna().tolist()]
+                valid = hist.dropna(subset=['Close'])
+                history_prices = [float(p) for p in valid['Close'].tolist()]
+                if 'Volume' in valid:
+                    history_volumes = [float(v) for v in valid['Volume'].tolist()]
                 if history_prices:
                     price = history_prices[-1]
         except Exception as exc:
@@ -65,6 +71,7 @@ class YahooMarketDataProvider(MarketDataProvider):
             "pe_ratio": pe_ratio,
             "div_yield": div_yield,
             "history": history_prices,
+            "volumes": history_volumes,
             "market_cap": market_cap,
             "technicals": {
                 "market_cap": market_cap,

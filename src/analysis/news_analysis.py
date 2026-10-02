@@ -89,6 +89,24 @@ def _technical_context(snapshot: MarketSnapshotData) -> str:
                 parts.append('ราคาจมใต้ SMA20 และ SMA50 = แนวโน้มลงชัดเจน')
             else:
                 parts.append('เส้น MA ยังไม่เรียงตัว แนวโน้มไม่ชัด')
+        ema20 = tech.get('ema20')
+        ema50 = tech.get('ema50')
+        try:
+            if ema20 not in (None, '-', 'N/A') and ema50 not in (None, '-', 'N/A'):
+                e20, e50 = float(ema20), float(ema50)
+                if e20 > e50:
+                    parts.append(f'EMA20 {ema20} อยู่เหนือ EMA50 {ema50} = แนวโน้มระยะกลางเป็นขาขึ้น')
+                else:
+                    parts.append(f'EMA20 {ema20} อยู่ต่ำกว่า EMA50 {ema50} = แนวโน้มระยะกลางเป็นขาลง')
+        except (TypeError, ValueError):
+            pass
+        macd_hist = tech.get('macd_hist')
+        try:
+            if macd_hist not in (None, '-', 'N/A'):
+                mh = float(macd_hist)
+                parts.append(f'MACD histogram {macd_hist} ({"บวก = โมเมนตัมขาขึ้น" if mh > 0 else "ลบ = โมเมนตัมขาลง"})')
+        except (TypeError, ValueError):
+            pass
         yh = tech.get('year_high')
         yl = tech.get('year_low')
         if yh not in (None, '-', 'N/A') and yl not in (None, '-', 'N/A'):

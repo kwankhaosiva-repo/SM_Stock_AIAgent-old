@@ -156,7 +156,7 @@ def get_candles_and_indicators(symbol):
     """ Get Candles from yfinance and calculate indicators manually """
     try:
         ticker = yf.Ticker(symbol)
-        history_df = ticker.history(period="60d")
+        history_df = ticker.history(period="1y")
         if history_df.empty:
             return None
 

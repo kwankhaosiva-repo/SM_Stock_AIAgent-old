@@ -81,7 +81,7 @@ class SettradeOpenDataProvider(MarketDataProvider):
             print(f'[SettradeOpen] sec_info error for {symbol}: {exc}')
             return {}
 
-    def _get_history(self, ctx, symbol: str, limit: int = 60) -> list:
+    def _get_history(self, ctx, symbol: str, limit: int = 250) -> list:
         try:
             resp = ctx.market_report.get_candlestick(
                 symbol=symbol.replace('.BK', ''),

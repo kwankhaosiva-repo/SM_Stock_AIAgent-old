@@ -6,6 +6,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from reporting.line_report_renderer import LineReportRenderer
+from reporting.indicator_view import GLOSSARY, build_indicator_sections
 
 
 class LineReportingTests(unittest.TestCase):
@@ -24,6 +25,20 @@ class LineReportingTests(unittest.TestCase):
                 'rsi': '58.20',
                 'sma50': '32.10',
                 'volatility': '18.2%',
+                'ema20': '33.90',
+                'ema50': '33.10',
+                'ema200': '31.50',
+                'boll_lower': '32.80',
+                'boll_upper': '35.40',
+                'macd_hist': '0.120',
+                'avg5': '34.20',
+                'momentum5': '+2.1%',
+                'consolidation': '5.2%',
+                'obv_trend': 'rising',
+                'support': '31.00',
+                'resistance': '35.00',
+                'year_high': '36.00',
+                'year_low': '28.00',
             },
             'advice': {
                 'outlook': 'Positive',
@@ -77,6 +92,34 @@ class LineReportingTests(unittest.TestCase):
 
         # Disclaimer
         self.assertIn('ไม่ใช่คำแนะนำการลงทุนเฉพาะบุคคล', raw_json)
+
+        # Technical indicator sections: short / mid / long with explanations
+        self.assertIn('บทวิเคราะห์เชิงเทคนิค', raw_json)
+        self.assertIn('ระยะสั้น', raw_json)
+        self.assertIn('ระยะกลาง', raw_json)
+        self.assertIn('ระยะยาว', raw_json)
+        self.assertIn('Golden Cross', json.dumps(GLOSSARY, ensure_ascii=False))
+        self.assertIn('action=glossary', footer_json)
+
+        # Every indicator line must carry a beginner explanation
+        sections = build_indicator_sections(self.report['technicals'], 34.50)
+        self.assertGreaterEqual(len(sections), 3)
+        for sec in sections:
+            for line in sec['lines']:
+                self.assertTrue(line['explain'])
+                self.assertIn(line['tone_label'], ('Positive', 'Negative', 'Watch'))
+
+    def test_glossary_card_and_text(self):
+        card = LineReportRenderer.render_glossary_card()
+        self.assertEqual(card.get('type'), 'bubble')
+        raw = json.dumps(card, ensure_ascii=False)
+        for term in ('RSI', 'MACD', 'EMA', 'OBV', 'Bollinger'):
+            self.assertIn(term, raw)
+
+        text = LineReportRenderer.render_glossary_text()
+        self.assertIn('คำศัพท์', text)
+        self.assertIn('มือใหม่', text)
+        self.assertGreater(len(GLOSSARY), 8)
 
     def test_daily_digest_card(self):
         digest = LineReportRenderer.render_daily_digest_card(

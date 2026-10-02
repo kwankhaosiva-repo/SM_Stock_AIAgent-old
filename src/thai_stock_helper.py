@@ -86,7 +86,8 @@ class SettradeHelper:
                 "time": time_list,
                 "close": [float(x) for x in history_df['Close'].tolist()],
                 "high": [float(x) for x in history_df['High'].tolist()],
-                "low": [float(x) for x in history_df['Low'].tolist()]
+                "low": [float(x) for x in history_df['Low'].tolist()],
+                "volume": [float(x) for x in history_df['Volume'].tolist()] if 'Volume' in history_df else []
             }
         except Exception as e:
             print(f"[YFINANCE THAI CANDLES ERROR] {symbol}: {e}")

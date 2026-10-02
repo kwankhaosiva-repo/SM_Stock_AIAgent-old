@@ -159,6 +159,7 @@ HELP_TEXT = (
     '• news <หุ้น> — Market Brief วิเคราะห์ข่าวโดย AI\n'
     '• report <หุ้น...> — รายงานวิเคราะห์เต็ม\n'
     '• watchlist — ดูรายการหุ้น\n'
+    '• glossary / คำศัพท์ — คำอธิบายตัวชี้วัดสำหรับมือใหม่\n'
     '• help — แสดงคำสั่งทั้งหมด'
 )
 
@@ -205,6 +206,10 @@ def dispatch(req: ChatRequest) -> List[ChatResponse]:
 
         if command in ('watchlist', 'รายการหุ้น'):
             return [handle_watchlist(req)]
+
+        if command in ('glossary', 'คำศัพท์', 'ศัพท์', 'guide'):
+            from reporting.line_report_renderer import LineReportRenderer
+            return [ChatResponse(kind='text', text=LineReportRenderer.render_glossary_text())]
 
         # Bare ticker (e.g. "PTT" or "PTT.BK") -> treat as report request
         if len(parts) == 1 and _resolve_symbol(parts[0]):

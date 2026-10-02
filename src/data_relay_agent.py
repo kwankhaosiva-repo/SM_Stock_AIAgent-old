@@ -50,10 +50,15 @@ def quote(symbol: str):
         ticker = yf.Ticker(symbol)
 
         history_prices = []
+        history_volumes = []
         try:
-            hist = ticker.history(period='60d')
+            # 1y window so EMA200 / MACD / golden-cross have enough bars.
+            hist = ticker.history(period='1y')
             if not hist.empty and 'Close' in hist:
-                history_prices = [float(p) for p in hist['Close'].dropna().tolist()]
+                valid = hist.dropna(subset=['Close'])
+                history_prices = [float(p) for p in valid['Close'].tolist()]
+                if 'Volume' in valid:
+                    history_volumes = [float(v) for v in valid['Volume'].tolist()]
         except Exception as exc:
             print(f'[Relay] history error {symbol}: {exc}')
 
@@ -82,6 +87,7 @@ def quote(symbol: str):
             'pe_ratio': float(pe) if pe else None,
             'div_yield': (float(yd) * 100 if float(yd) < 1.0 else float(yd)) if yd else None,
             'history': history_prices,
+            'volumes': history_volumes,
             'technicals': {},
         })
     except Exception as exc:

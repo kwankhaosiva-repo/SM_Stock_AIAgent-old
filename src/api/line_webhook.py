@@ -269,6 +269,25 @@ def handle_message(event):
         store.set_chat_state(user_id, None)
         return
 
+    # Beginner glossary — static content, reply inline.
+    if text.strip().lower() in ('glossary', 'คำศัพท์', 'ศัพท์', 'คำศัพท์สำหรับมือใหม่'):
+        from reporting.line_report_renderer import LineReportRenderer
+        store.get_or_create_user(user_id)
+        store.set_chat_state(user_id, None)
+        try:
+            card = LineReportRenderer.render_glossary_card()
+            line_bot_api.reply_message(
+                event.reply_token,
+                FlexSendMessage(alt_text="คำศัพท์สำหรับมือใหม่", contents=card),
+            )
+        except Exception as exc:
+            print(f"[Glossary Text Error]: {exc}")
+            line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=LineReportRenderer.render_glossary_text()),
+            )
+        return
+
     store.get_or_create_user(user_id)
     current_state = store.get_chat_state(user_id)
     if current_state == "ADD_STOCK":
@@ -526,6 +545,22 @@ def handle_postback(event):
                 for item in items
             ]
             enqueue_report(user_id, user_id, safe_items, user_settings_snapshot)
+
+        elif action == 'glossary':
+            # Static beginner glossary — no heavy work, reply inline.
+            from reporting.line_report_renderer import LineReportRenderer
+            try:
+                card = LineReportRenderer.render_glossary_card()
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    FlexSendMessage(alt_text="คำศัพท์สำหรับมือใหม่", contents=card),
+                )
+            except Exception as exc:
+                print(f"[Glossary Flex Error]: {exc}")
+                line_bot_api.reply_message(
+                    event.reply_token,
+                    TextSendMessage(text=LineReportRenderer.render_glossary_text()),
+                )
 
         elif action == 'our_products':
             line_bot_api.reply_message(event.reply_token, TextSendMessage(text="รอติดตามผลงานเร็วๆนี้"))
