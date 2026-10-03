@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="th" data-lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<title>AIAgent LineStock — Project Presentation</title>
+<style>
+  :root{
+    --accent:#1d4ed8;
+    --accent-soft:#eef2ff;
+    --ink:#17203a;
+    --ink-soft:#4b5570;
+    --line:#e3e7ef;
+    --bg:#ffffff;
+    --bg-alt:#f7f8fb;
+    --card:#ffffff;
+    --good:#0f766e;
+    --warn:#b45309;
+    --bad:#b91c1c;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  html[data-lang="th"] .en{display:none !important}
+  html[data-lang="en"] .th{display:none !important}
+  body{
+    font-family:"Inter","Anuphan",system-ui,-apple-system,"Segoe UI",sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    line-height:1.75;
+    font-size:17px;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* progress bar */
+  #progress{position:fixed;top:0;left:0;height:3px;width:0;background:var(--accent);z-index:50;transition:width .1s linear}
+  /* header */
+  header{
+    position:sticky;top:0;z-index:40;
+    background:rgba(255,255,255,.94);backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line);
+  }
+  .header-in{
+    max-width:960px;margin:0 auto;padding:12px 24px;
+    display:flex;align-items:center;justify-content:space-between;gap:16px;
+  }
+  .brand{font-weight:700;font-size:15px;letter-spacing:.02em;color:var(--ink)}
+  .brand span{color:var(--accent)}
+  .lang-toggle{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:#fff}
+  .lang-toggle button{
+    border:0;background:transparent;cursor:pointer;
+    font:inherit;font-size:13px;font-weight:600;
+    padding:6px 16px;color:var(--ink-soft);
+    transition:background .15s, color .15s;
+  }
+  .lang-toggle button.active{background:var(--accent);color:#fff}
+  /* layout */
+  main{max-width:960px;margin:0 auto;padding:0 24px}
+  section{padding:72px 0;border-bottom:1px solid var(--line)}
+  section:last-of-type{border-bottom:0}
+  section.alt{background:var(--bg-alt);max-width:none}
+  section.alt > *{max-width:960px;margin-left:auto;margin-right:auto}
+  .kicker{
+    display:inline-block;font-size:12px;font-weight:700;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--accent);
+    background:var(--accent-soft);border-radius:999px;padding:4px 14px;margin-bottom:16px;
+  }
+  h1{font-size:clamp(30px,5vw,46px);line-height:1.25;letter-spacing:-.01em}
+  h2{font-size:clamp(24px,3.5vw,32px);line-height:1.3;margin-bottom:20px;letter-spacing:-.01em}
+  h3{font-size:19px;margin-bottom:8px}
+  p{margin-bottom:16px;color:var(--ink-soft)}
+  p.lead{font-size:19px;color:var(--ink)}
+  strong{color:var(--ink)}
+  a{color:var(--accent)}
+  ul.clean{list-style:none;margin:8px 0 16px}
+  ul.clean li{position:relative;padding-left:26px;margin-bottom:10px;color:var(--ink-soft)}
+  ul.clean li::before{
+    content:"";position:absolute;left:4px;top:11px;
+    width:8px;height:8px;border-radius:50%;background:var(--accent);
+  }
+  /* hero */
+  .hero{padding:88px 0 72px;border-bottom:1px solid var(--line)}
+  .hero .tag{font-size:14px;color:var(--ink-soft);margin-top:20px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:24px}
+  .chip{
+    font-size:13px;font-weight:600;color:var(--ink);
+    background:#fff;border:1px solid var(--line);border-radius:999px;padding:5px 14px;
+  }
+  .chip.accent{background:var(--accent-soft);border-color:#dbe4ff;color:var(--accent)}
+  .scroll-hint{margin-top:44px;font-size:14px;color:var(--ink-soft);display:flex;align-items:center;gap:8px}
+  .scroll-hint .arrow{animation:bob 1.6s infinite;font-size:18px;color:var(--accent)}
+  @keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(6px)}}
+  .toc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:40px}
+  .toc a{
+    display:block;font-size:14px;font-weight:600;text-decoration:none;color:var(--ink);
+    border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:#fff;
+    transition:border-color .15s, color .15s;
+  }
+  .toc a:hover{border-color:var(--accent);color:var(--accent)}
+  .toc a small{display:block;font-weight:400;color:var(--ink-soft);font-size:12px;margin-top:2px}
+  /* cards */
+  .cards{display:grid;gap:16px;margin-top:24px}
+  .cards.two{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 24px;
+  }
+  .card .num{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:26px;height:26px;border-radius:50%;
+    background:var(--accent);color:#fff;font-size:13px;font-weight:700;margin-bottom:10px;
+  }
+  .card .prob{color:var(--warn);font-weight:700;font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+  .card p{margin-bottom:0;font-size:15.5px}
+  .card .fix{margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);font-size:15.5px;color:var(--ink-soft)}
+  .card .fix strong{color:var(--good)}
+  /* narrative callout */
+  .callout{
+    background:var(--accent-soft);border-left:4px solid var(--accent);
+    border-radius:0 var(--radius) var(--radius) 0;
+    padding:18px 22px;margin:24px 0;font-size:16.5px;color:var(--ink);
+  }
+  /* tables */
+  .table-wrap{overflow-x:auto;margin-top:24px;border:1px solid var(--line);border-radius:var(--radius);background:#fff}
+  table{width:100%;border-collapse:collapse;font-size:15px;min-width:640px}
+  th,td{text-align:left;padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--bg-alt);font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+  tr:last-child td{border-bottom:0}
+  td:first-child{font-weight:700;color:var(--ink);white-space:nowrap}
+  /* tags */
+  .tags{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+  .tag-pill{
+    font-size:13px;font-weight:600;border-radius:999px;padding:4px 12px;
+    background:#fff;border:1px solid var(--line);color:var(--ink);display:inline-flex;align-items:center;gap:6px;
+  }
+  .tag-pill.good{background:#ecfdf5;border-color:#a7f3d0;color:var(--good)}
+  .tag-pill.warn{background:#fffbeb;border-color:#fde68a;color:var(--warn)}
+  .tag-pill.bad{background:#fef2f2;border-color:#fecaca;color:var(--bad)}
+  /* architecture diagram */
+  .diagram{margin-top:28px;display:flex;flex-direction:column;align-items:center;gap:0}
+  .d-row{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+  .d-node{
+    background:#fff;border:1px solid var(--line);border-radius:var(--radius);
+    padding:12px 20px;font-size:14.5px;font-weight:600;text-align:center;min-width:150px;
+    box-shadow:0 1px 2px rgba(23,32,58,.05);
+  }
+  .d-node small{display:block;font-weight:400;color:var(--ink-soft);font-size:12.5px;margin-top:2px}
+  .d-node.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .d-node.primary small{color:#dbe4ff}
+  .d-node.accent{background:var(--accent-soft);border-color:#dbe4ff}
+  .d-arrow{color:var(--accent);font-size:20px;line-height:1;padding:8px 0;font-weight:700}
+  .d-steps{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;align-items:center}
+  .d-step{
+    background:#fff;border:1px solid var(--line);border-radius:8px;
+    padding:8px 12px;font-size:13px;font-weight:600;
+  }
+  .d-plus{color:var(--ink-soft);font-size:14px;padding:0 2px}
+  .d-side{
+    margin-top:14px;font-size:13px;color:var(--ink-soft);
+    background:var(--bg-alt);border:1px dashed var(--line);border-radius:var(--radius);
+    padding:10px 18px;text-align:center;max-width:680px;
+  }
+  /* steps (workflow) */
+  .steps{counter-reset:step;margin-top:24px}
+  .step{
+    position:relative;padding:0 0 26px 56px;border-left:2px solid var(--line);
+    margin-left:16px;
+  }
+  .step:last-child{border-left-color:transparent;padding-bottom:0}
+  .step::before{
+    counter-increment:step;content:counter(step);
+    position:absolute;left:-17px;top:0;
+    width:32px;height:32px;border-radius:50%;
+    background:#fff;border:2px solid var(--accent);color:var(--accent);
+    font-weight:700;font-size:14px;display:flex;align-items:center;justify-content:center;
+  }
+  .step h3{margin-bottom:4px}
+  .step p{font-size:15.5px;margin-bottom:0}
+  /* outcomes */
+  .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-top:24px}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:20px}
+  .stat .big{font-size:26px;font-weight:800;color:var(--accent);line-height:1.2}
+  .stat .lbl{font-size:14px;color:var(--ink-soft);margin-top:6px}
+  /* footer */
+  footer{background:var(--bg-alt);border-top:1px solid var(--line);padding:36px 24px;text-align:center}
+  footer p{font-size:14px;margin:0 auto;max-width:760px}
+  @media (max-width:640px){
+    body{font-size:16px}
+    section{padding:56px 0}
+    .hero{padding:64px 0 56px}
+    .step{padding-left:44px}
+  }
+</style>
+</head>
+<body>
+<div id="progress"></div>
+
+<header>
+  <div class="header-in">
+    <div class="brand">AIAgent <span>LineStock</span></div>
+    <div class="lang-toggle" role="group" aria-label="Language">
+      <button id="btn-th" class="active" onclick="setLang('th')">ไทย</button>
+      <button id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ HERO ============ -->
+  <section class="hero">
+    <div class="kicker">
+      <span class="th">การนำเสนอโปรเจกต์ · Project Presentation</span>
+      <span class="en">Project Presentation · การนำเสนอโปรเจกต์</span>
+    </div>
+    <h1>AIAgent LineStock</h1>
+    <p class="lead" style="margin-top:16px">
+      <span class="th">ผู้ช่วยวิเคราะห์หุ้นแบบ <strong>อ้างอิงหลักฐาน (Evidence-Based)</strong> บน LINE / Web / Discord — ขับเคลื่อนด้วยสาย LLM ฟรี Tier 8 ค่าย ที่ failover อัตโนมัติ รันบน GCP scale-to-zero ต้นทุนใกล้เคียง $0 และ <strong>ไม่ยอมให้ AI แต่งตัวเลขเอง</strong></span>
+      <span class="en">An intelligent, <strong>evidence-based</strong> stock research assistant on LINE / Web / Discord — powered by an 8-provider free-tier LLM failover chain running on GCP scale-to-zero at near-$0 cost, with <strong>zero hallucinated financial math</strong>.</span>
+    </p>
+    <div class="chips">
+      <span class="chip accent">LINE Flex</span>
+      <span class="chip accent">Web Chat</span>
+      <span class="chip accent">Discord</span>
+      <span class="chip accent">LangGraph</span>
+      <span class="chip">8-Provider LLM Chain</span>
+      <span class="chip">Google Cloud Run</span>
+      <span class="chip">Firestore</span>
+      <span class="chip">Settrade + yfinance</span>
+    </div>
+    <p class="tag">
+      <span class="th">Live บน Cloud Run: </span><span class="en">Live on Cloud Run: </span>
+      <a href="https://agent-stocks-service-1025686285464.asia-southeast1.run.app" target="_blank" rel="noopener">agent-stocks-service-1025686285464.asia-southeast1.run.app</a>
+    </p>
+
+    <div class="toc">
+      <a href="#ch1"><span class="th">1 · ทำไมถึงเริ่มทำ</span><span class="en">1 · Why we started</span><small><span class="th">ปัญหา AI คิดเลขมั่ว &amp; quota ล่ม</span><span class="en">LLM math hallucinations &amp; quota risks</span></small></a>
+      <a href="#ch2"><span class="th">2 · ปัญหาที่เจอ &amp; วิธีแก้</span><span class="en">2 · Problems &amp; solutions</span><small><span class="th">6 อุปสรรคจริง + สถาปัตยกรรมที่แก้</span><span class="en">6 real roadblocks + architectural fixes</span></small></a>
+      <a href="#ch3"><span class="th">3 · ทำไมต้อง Evidence-Based</span><span class="en">3 · Why evidence-based</span><small><span class="th">Python คิดเลข + LLM แค่ตีความ</span><span class="en">Deterministic Python + LLM interpretation</span></small></a>
+      <a href="#ch4"><span class="th">4 · ทำไมเลือกเครื่องมือเหล่านี้</span><span class="en">4 · Why these tools</span><small><span class="th">เปรียบเทียบกับตัวเลือกที่ไม่ได้ใช้</span><span class="en">Compared with alternatives not picked</span></small></a>
+      <a href="#ch5"><span class="th">5 · สถาปัตยกรรมระบบ</span><span class="en">5 · Architecture</span><small><span class="th">แผนภาพการทำงาน 1 ภาพครบวงจร</span><span class="en">The whole multi-agent pipeline in 1 chart</span></small></a>
+      <a href="#ch6"><span class="th">6 · Tech Stack</span><span class="en">6 · Tech Stack</span><small><span class="th">เครื่องมือทั้งหมดใน 4 เลเยอร์</span><span class="en">Every component across 4 layers</span></small></a>
+      <a href="#ch7"><span class="th">7 · Workflow การวิเคราะห์</span><span class="en">7 · Analysis workflow</span><small><span class="th">จาก Ticker สู่คำแนะนำบน LINE</span><span class="en">From ticker to rich LINE advice card</span></small></a>
+      <a href="#ch8"><span class="th">8 · ผลลัพธ์และแผนต่อยอด</span><span class="en">8 · Outcomes &amp; next steps</span><small><span class="th">ความเสถียร $0/เดือน และก้าวถัดไป</span><span class="en">Near-$0 resilience and roadmap</span></small></a>
+    </div>
+
+    <div class="scroll-hint">
+      <span class="arrow">↓</span>
+      <span class="th">เลื่อนลงเพื่ออ่านรายละเอียดการออกแบบทั้งหมด</span>
+      <span class="en">Scroll down to explore the complete design</span>
+    </div>
+  </section>
+
+  <!-- ============ CH1: WHY ============ -->
+  <section id="ch1">
+    <div class="kicker"><span class="th">บทที่ 1</span><span class="en">Chapter 1</span></div>
+    <h2><span class="th">ทำไมถึงเริ่มทำ — ปัญหาของบอทหุ้นทั่วไป</span><span class="en">Why we started — the fatal flaws of naive stock bots</span></h2>
+    <p class="lead">
+      <span class="th">เรื่องมันเริ่มจากคำถามง่ายๆ: <em>"เราจะมี AI ดูหุ้นส่วนตัวบน LINE ที่บอกได้เสมอว่าแต่ละคำแนะนำอ้างอิงจากหลักฐานอะไร โดยไม่ต้องเสียค่าบริการรายเดือนแพงๆ ได้ไหม?"</em></span>
+      <span class="en">It started with a simple question: <em>"Can we build a personal stock assistant on LINE that always shows verified evidence behind every insight, without paying expensive monthly API bills?"</em></span>
+    </p>
+    <p>
+      <span class="th">บอท AI แชทเรื่องหุ้นทั่วไปในท้องตลาดมี 3 ปัญหาอันตรายที่ผู้ใช้ไม่ค่อยรู้ตัว:</span>
+      <span class="en">Naive LLM stock chatbots suffer from three critical hazards:</span>
+    </p>
+    <ul class="clean">
+      <li>
+        <span class="th"><strong>AI คิดเลขและแต่งตัวเลขเอง (Hallucinated Math)</strong> — โมเดลภาษาชอบเดาราคา P/E, RSI หรือคำนวณแนวรับแนวต้านแบบมั่วซั่ว แต่พูดจาดูมั่นใจมาก ทำให้นักลงทุนตัดสินใจผิดพลาด</span>
+        <span class="en"><strong>Hallucinated financial metrics</strong> — LLMs confidently fabricate prices, P/E ratios, and RSI thresholds because language models cannot reliably calculate math.</span>
+      </li>
+      <li>
+        <span class="th"><strong>พึ่งพา Provider เจ้าเดียว = เสี่ยงล่ม (Single Point of Failure)</strong> — วันดีคืนดี API เจ้าประจำโควตาเต็ม (429), เครดิตหมด (402), หรือถอดโมเดลออก (404) บอทจะหยุดตอบสนองทันที</span>
+        <span class="en"><strong>Single-provider fragile dependencies</strong> — Quota exhaustion (429), expired credits (402), or dropped model tags (404) immediately break the bot.</span>
+      </li>
+      <li>
+        <span class="th"><strong>API หุ้นบล็อก Cloud IP &amp; ข้อมูลไทยเข้าถึงยาก</strong> — Yahoo Finance และ Financial data providers มักบล็อก IP data center ฝั่ง Google Cloud/AWS ส่วนข้อมูล SET มี sandbox จำกัด</span>
+        <span class="en"><strong>Cloud IP rate-limiting &amp; fragmented Thai market feeds</strong> — Yahoo Finance blocks Cloud IPs, while official Thai SET feeds require authenticated sandbox handshakes.</span>
+      </li>
+    </ul>
+    <div class="callout">
+      <span class="th"><strong>หัวใจการออกแบบของโปรเจกต์:</strong> ห้ามให้ AI คำนวณตัวเลขเด็ดขาด (Python คิดเลข 100% — AI มีหน้าที่แค่เรียบเรียงและตีความ) + ทุกเหตุผลต้องติด Tag แหล่งที่มา <code>[จากข่าว]</code> <code>[จากงบ]</code> <code>[จากสถิติ]</code> พร้อมระบบสำรอง Failover 8 เจ้าไม่มี downtime</span>
+      <span class="en"><strong>Core design principle:</strong> LLMs never do math (Python computes 100% — AI only interprets) + every claim carries verified evidence tags <code>[From News]</code> <code>[From Financials]</code> <code>[From Indicators]</code> with an 8-provider failover chain for zero downtime.</span>
+    </div>
+  </section>
+
+  <!-- ============ CH2: PROBLEMS & SOLUTIONS ============ -->
+  <section id="ch2" class="alt">
+    <div class="kicker"><span class="th">บทที่ 2</span><span class="en">Chapter 2</span></div>
+    <h2><span class="th">ปัญหาจริงที่เจอระหว่างทาง และวิธีแก้ในโค้ด</span><span class="en">Problems encountered — and how we engineered fixes</span></h2>
+    <p>
+      <span class="th">ระหว่างพัฒนาไม่ได้ราบรื่นเลย นี่คือ 6 อุปสรรคจริงที่เราเจอ พร้อมวิธีแก้ในโค้ดของโปรเจกต์:</span>
+      <span class="en">Building a production-ready assistant was not trivial. Here are 6 real roadblocks and their exact code-level solutions:</span>
+    </p>
+
+    <div class="cards two">
+      <div class="card">
+        <div class="num">1</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">AI แต่งตัวเลขราคาและอินดิเคเตอร์</span><span class="en">AI fabricates prices and indicators</span></h3>
+        <p><span class="th">ถ้าสั่งให้ LLM วิเคราะห์ตรงๆ มันจะสร้างราคาปิดและคำนวณ RSI ผิดพลาดเกือบตลอดเวลา</span>
+           <span class="en">Asking an LLM directly leads to fabricated historical closes and flawed RSI/moving-average calculations.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>Deterministic Pipeline</strong>: <code>indicators.py</code> (RSI-14, SMA-20/50, Volatility, 30-day Support/Resistance) + <code>financial_ratios.py</code> (D/E, ROE, Margin) ส่งตัวเลขสำเร็จรูปให้ AI ตีความเท่านั้น</span>
+          <span class="en"><strong>Deterministic pipeline</strong>: <code>indicators.py</code> &amp; <code>financial_ratios.py</code> calculate all math in Python/pandas and pass read-only numbers into the LLM context.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="num">2</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">Quota ฟรีหมด = บอทตอบไม่ได้</span><span class="en">Free-tier quotas expire = bot goes down</span></h3>
+        <p><span class="th">Gemini ติด 402/เครดิตหมด, Groq ติด 404 (model เลิกให้บริการ), Mistral ติด 429</span>
+           <span class="en">Gemini hits billing 402, Groq throws 404 (model retired), or Mistral triggers rate-limit 429.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>8-Provider Failover Chain</strong> (Groq → Cerebras → Mistral → Cloudflare → OpenRouter → UnoRouter → Router9 → Ollama) ส่ง prompt เดิมต่อทันที + 404 Self-Healing ดึง <code>/models</code> จริงมาแคชตัวใหม่</span>
+          <span class="en"><strong>8-provider failover chain</strong> with context-forwarding failover + 404 self-healing that live-queries <code>/models</code> to rebind working model names automatically.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="num">3</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">Cloud Run โดนบล็อก IP ดึงหุ้นไม่ได้</span><span class="en">Cloud Run IPs get rate-limited by data feeds</span></h3>
+        <p><span class="th">Yahoo Finance และเว็บข่าวในบางช่วงบล็อก Request ที่มาจาก Google Cloud data centers</span>
+           <span class="en">Yahoo Finance frequently blocks requests originating from public Google Cloud data center IP ranges.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>Multi-Data Provider Fallback</strong>: Settrade Open API (หุ้นไทย) → Yahoo → FMP → <strong>Home Relay Agent</strong> ผ่าน Cloudflare Tunnel ดึงจากเน็ตบ้านส่งกลับขึ้น Cloud Run</span>
+          <span class="en"><strong>Multi-data provider fallback</strong>: Settrade Open API → Yahoo → FMP → local home relay agent tunneling market data via Cloudflare Tunnel.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="num">4</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">ผู้ใช้กดปุ่มซ้ำยิง AI ซ้ำซ้อน</span><span class="en">Double-tapping buttons triggers duplicated AI calls</span></h3>
+        <p><span class="th">LINE ผู้ใช้ชอบกดปุ่มย้ำๆ ทำให้เกิด Worker รันชนกัน เปลือง Quota และส่งการ์ดซ้ำ</span>
+           <span class="en">Users spam LINE buttons while waiting, spawning concurrent duplicate worker jobs and burning quota.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>30s Press Debounce Lock</strong> ใน Firestore (ต่อ user+symbol+action) + <strong>Shared Snapshot Cache 15 นาที</strong> + <code>X-Line-Retry-Key</code> Idempotency key</span>
+          <span class="en"><strong>30s press-debounce locks</strong> in Firestore per user+action+symbol + 15-minute shared snapshot cache + UUID idempotency keys.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="num">5</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">LINE Webhook หลุด Timeout 2 วินาที</span><span class="en">LINE Webhooks drop connection at 2 seconds</span></h3>
+        <p><span class="th">การวิเคราะห์ 4 เอเจนต์ใช้เวลา 4-8 วินาที ถ้าตอบช้า Webhook ของ LINE จะตัดการเชื่อมต่อ</span>
+           <span class="en">Running 4 agents takes 4-8s; holding the HTTP webhook connection open causes LINE to timeout and retry.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>Instant Acknowledgment</strong>: Webhook ตอบ HTTP 200 + ข้อความ "⏳ กำลังวิเคราะห์..." ทันที แล้วส่งงานเข้า Background Job Queue ก่อน Push ผลลัพธ์กลับ</span>
+          <span class="en"><strong>Instant acknowledgment</strong>: returns HTTP 200 + instant "⏳ Processing" status, handing execution off to background workers that push completed Flex cards.</span></div>
+      </div>
+
+      <div class="card">
+        <div class="num">6</div>
+        <div class="prob"><span class="th">ปัญหา</span><span class="en">Problem</span></div>
+        <h3><span class="th">ข่าวมีทั้งสแปมและหัวข้อซ้ำ</span><span class="en">News feeds contain noise and duplicated headlines</span></h3>
+        <p><span class="th">ดึงข่าวดิบมา 20 ชิ้น มีแต่ข่าวปั่นหุ้นและข่าวซ้ำสำนัก ทำให้ AI สรุปผลคลาดเคลื่อน</span>
+           <span class="en">Raw RSS/Finnhub feeds dump sponsored noise and multi-outlet duplicates that skew AI verdicts.</span></p>
+        <div class="fix"><strong><span class="th">แก้:</span><span class="en">Fix:</span></strong>
+          <span class="th"><strong>News Cleaning Pipeline</strong> (<code>news_cleaning.py</code>): ดึง 20-30 ข่าว → กรอง URL/หัวข้อซ้ำ → คัด Top 8 พร้อมบอกสถิติ <code>raw=23 -&gt; kept=8</code> อย่างโปร่งใส</span>
+          <span class="en"><strong>News cleaning pipeline</strong>: deduplicates by title similarity and source domain, ranking the top 8 impactful stories with transparent logging.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CH3: WHY EVIDENCE BASED ============ -->
+  <section id="ch3">
+    <div class="kicker"><span class="th">บทที่ 3</span><span class="en">Chapter 3</span></div>
+    <h2><span class="th">ทำไมต้องเป็น Evidence-Based Architecture</span><span class="en">Why evidence-based architecture</span></h2>
+    <p class="lead">
+      <span class="th">ในโลกการเงิน "ความน่าเชื่อถือและแหล่งที่มา สำคัญกว่าความฉลาดของภาษา"</span>
+      <span class="en">In financial engineering, traceable evidence matters far more than persuasive prose.</span>
+    </p>
+
+    <div class="cards two">
+      <div class="card">
+        <h3><span class="th">บอท AI ปกติทั่วไป</span><span class="en">Conventional AI Chatbots</span></h3>
+        <p><span class="th">ถามว่า "PTT น่าซื้อไหม" → LLM บรรยายยาวเหยียด แต่ไม่บอกว่าตัวเลขมาจากไหน และไม่รู้ว่าข่าวจริงหรือข่าวเก่าเมื่อ 2 ปีก่อนใน Memory</span>
+           <span class="en">Asks "Should I buy PTT?" → LLM returns long generic paragraphs, mixing up 2-year-old memory with hallucinated current PE ratios.</span></p>
+      </div>
+      <div class="card">
+        <h3><span class="th">สถาปัตยกรรมของเรา</span><span class="en">Our Evidence-Based Contract</span></h3>
+        <p><span class="th">แยกข้อมูลเป็น 3 เสาหลัก: <strong>[จากข่าว]</strong> (อ้างอิง URL ข่าวจริง) / <strong>[จากงบ]</strong> (D/E, Margin จากงบล่าสุด) / <strong>[จากสถิติ]</strong> (RSI, แนวรับต้านจากราคา 30 วัน)</span>
+           <span class="en">Separates insights into 3 strict pillars: <strong>[From News]</strong> (verifiable URLs), <strong>[From Financials]</strong> (audited ratios), and <strong>[From Indicators]</strong> (30-day technical ranges).</span></p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <span class="th"><strong>ด่านตรวจคุณภาพ (Reviewer Gate):</strong> เรามี Agent ตัวที่ 4 <code>RiskEvidenceReviewer</code> คอยตรวจทานคำตอบก่อนส่งถึงมือผู้ใช้ ถ้าพบคำการันตีผลตอบแทนเกินจริง ข้อมูลเก่าเกิน 15 นาที หรืออ้างอิงตัวเลขที่ไม่มีใน Context จะ Reject ให้แก้ทันที</span>
+      <span class="en"><strong>Quality Reviewer Gate:</strong> The 4th agent, <code>RiskEvidenceReviewer</code>, scrutinizes advice before delivery. Any guaranteed-return language, stale data (&gt;15m), or ungrounded statistics gets flagged and sent back for revision.</span>
+    </div>
+  </section>
+
+  <!-- ============ CH4: WHY LIBRARIES ============ -->
+  <section id="ch4" class="alt">
+    <div class="kicker"><span class="th">บทที่ 4</span><span class="en">Chapter 4</span></div>
+    <h2><span class="th">ทำไมเลือกเครื่องมือเหล่านี้</span><span class="en">Why we selected these tools</span></h2>
+    <p><span class="th">ทุกชิ้นส่วนในระบบถูกคัดเลือกด้วยเหตุผลชัดเจน — ตารางนี้เปรียบเทียบกับตัวเลือกที่เรา "ไม่ใช้":</span>
+       <span class="en">Every framework in our repository was vetted against discarded alternatives:</span></p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th><span class="th">เครื่องมือที่เลือก</span><span class="en">Selected Tool</span></th>
+            <th><span class="th">เหตุผลที่เลือก</span><span class="en">Why We Chose It</span></th>
+            <th><span class="th">ตัวเลือกที่ไม่ใช้ &amp; เหตุผล</span><span class="en">Rejected Alternative &amp; Why</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>LangGraph</td>
+            <td><span class="th">StateGraph ชัดเจน รองรับ Parallel Fan-out (รัน News + Fundamental พร้อมกัน) และทำ Reviewer Reflection loop ได้สมบูรณ์</span>
+                <span class="en">Explicit StateGraph supporting parallel fan-out (News + Tech run concurrently) and cyclical reflection loops.</span></td>
+            <td><span class="th">LangChain Chains ยาวๆ — ควบคุม Flow แยกย่อยยาก และดีบัก State ข้ามเอเจนต์ลำบาก</span>
+                <span class="en">Linear LangChain Chains — hard to debug state branching and lacks clean cyclic review loops.</span></td>
+          </tr>
+          <tr>
+            <td>Failover Chain (8 Providers)</td>
+            <td><span class="th">รวม Free-tier โควตา (Groq, Cerebras, Mistral, Cloudflare, OpenRouter, UnoRouter...) สลับค่ายอัตโนมัติเมื่อ Error</span>
+                <span class="en">Aggregates free tiers across 8 providers with automatic fallback on quota exhaustion or dropped models.</span></td>
+            <td><span class="th">Single Paid API (OpenAI/Anthropic) — ค่าใช้จ่ายบานปลายเมื่อผู้ใช้แชทบ่อย และเสี่ยงล่มเมื่อตัดบัตรไม่ผ่าน</span>
+                <span class="en">Single Paid API — unpredictable API bills and complete downtime if subscription billing fails.</span></td>
+          </tr>
+          <tr>
+            <td>Flask + Gunicorn</td>
+            <td><span class="th">เบา รันเสถียร รองรับ Webhook และ Worker ใน container ขนาดกะทัดรัด</span>
+                <span class="en">Lightweight, stable, perfect for webhook ingestion with predictable gthread worker concurrency.</span></td>
+            <td><span class="th">Django — โครงสร้างหนักเกินไป มี ORM และ boilerplate มากเกินความจำเป็นสำหรับ Serverless Webhook</span>
+                <span class="en">Django — too heavy with redundant ORM boilerplate for a lightweight serverless webhook.</span></td>
+          </tr>
+          <tr>
+            <td>Google Firestore</td>
+            <td><span class="th">NoSQL Serverless สเกลเหลือ $0 ได้ ไม่ต้องดูแล connection pool และมี SDK Auth ผ่าน ADC ใน Cloud Run ทันที</span>
+                <span class="en">Serverless NoSQL that scales to zero ($0 idle cost), eliminating database connection pools and password secrets.</span></td>
+            <td><span class="th">Cloud SQL (PostgreSQL) — ต้องจ่ายค่าเปิดเครื่องทิ้งไว้ ~$15-30/เดือน แม้ไม่มีคนใช้งาน</span>
+                <span class="en">Cloud SQL (Postgres) — charges $15-30/month even when 100% idle.</span></td>
+          </tr>
+          <tr>
+            <td>Google Cloud Run</td>
+            <td><span class="th">Scale-to-zero (min-instances 0) + CPU Throttling คิดเงินเฉพาะช่วงมี Request ตอบโจทย์ $0/เดือน</span>
+                <span class="en">Scale-to-zero (min=0) + CPU throttling bills exclusively during active request execution for near-$0 operations.</span></td>
+            <td><span class="th">Compute Engine (VM) — ต้องเปิดเครื่อง 24/7 จ่ายค่าเช่าคงที่รายเดือน และต้องคอย Patch OS เอง</span>
+                <span class="en">Compute Engine (VM) — fixed hourly charges 24/7 plus ongoing OS patch maintenance overhead.</span></td>
+          </tr>
+          <tr>
+            <td>Pydantic v2</td>
+            <td><span class="th">บังคับ Contract JSON ของ Agent ทุกตัว ถ้าโครงสร้างข้อมูลเพี้ยนระบบจะ fallback ทันที ไม่ปล่อย error หลุดไปหาผู้ใช้</span>
+                <span class="en">Validates JSON contracts from LLMs; malformed outputs trigger deterministic fallbacks rather than crashing.</span></td>
+            <td><span class="th">Regex parsing — เปราะบาง พังง่ายเมื่อ LLM สลับตำแหน่งข้อความ</span>
+                <span class="en">Regex parsing — brittle and vulnerable to prompt phrasing shifts.</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ CH5: ARCHITECTURE ============ -->
+  <section id="ch5">
+    <div class="kicker"><span class="th">บทที่ 5</span><span class="en">Chapter 5</span></div>
+    <h2><span class="th">สถาปัตยกรรมระบบ ใน 1 ภาพ</span><span class="en">System architecture in one view</span></h2>
+    <p><span class="th">ระบบแยก Layer ชัดเจน: ช่องทางแชท → Webhook → Job Queue → Multi-Agent Graph → Flex Renderer</span>
+       <span class="en">Clean separation of concerns: Chat Channels → Webhook Dispatcher → Job Queue → Multi-Agent Graph → Flex Renderer:</span></p>
+
+    <div class="diagram">
+      <div class="d-row">
+        <span class="d-node">LINE Messaging API</span>
+        <span class="d-node">Web Chat Interface</span>
+        <span class="d-node">Discord Bot</span>
+      </div>
+      <div class="d-arrow">↓</div>
+      <div class="d-node primary">Flask Webhook &amp; Dispatcher <small>Google Cloud Run · asia-southeast1 · Instant Ack</small></div>
+      <div class="d-arrow">↓</div>
+      <div class="d-row">
+        <span class="d-node accent">Firestore Cache <small>15-min Shared Market Snapshot</small></span>
+        <span class="d-node accent">Press Debounce Lock <small>30s user-symbol mutex</small></span>
+      </div>
+      <div class="d-arrow">↓</div>
+      <div class="d-node primary">Deterministic Python Engine <small>indicators.py (RSI/SMA) + financial_ratios.py + news_cleaning.py</small></div>
+      <div class="d-arrow">↓</div>
+      <div class="d-steps">
+        <span class="d-step">News Context Agent</span><span class="d-plus">+</span>
+        <span class="d-step">Fundamental &amp; Technical Agent</span><span class="d-plus">→</span>
+        <span class="d-step">Personalized Advice Agent</span><span class="d-plus">→</span>
+        <span class="d-step">Risk &amp; Evidence Reviewer</span>
+      </div>
+      <div class="d-arrow">↓</div>
+      <div class="d-node accent">Failover LLM Chain <small>Groq → Cerebras → Mistral → Cloudflare → OpenRouter → UnoRouter → Router9 → Ollama</small></div>
+      <div class="d-arrow">↓</div>
+      <div class="d-node primary">LINE Flex &amp; Web Renderer <small>Traffic-Light Tags (🟢🔴🟡) + 3-Pillar Evidence [News, Financials, Stats]</small></div>
+      <div class="d-side">
+        <span class="th">ระบบเสริม: Cloud Scheduler (แจ้งเตือนหุ้นเช้า/เย็น) · Settrade Open API / Yahoo Finance · Home Relay Tunnel</span>
+        <span class="en">Auxiliary systems: Cloud Scheduler (Daily Digest cron) · Settrade Open API / Yahoo · Home Relay Tunnel</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CH6: TECH STACK ============ -->
+  <section id="ch6" class="alt">
+    <div class="kicker"><span class="th">บทที่ 6</span><span class="en">Chapter 6</span></div>
+    <h2><span class="th">Tech Stack ทั้งหมด</span><span class="en">Complete tech stack</span></h2>
+    <p><span class="th">แบ่งเป็น 4 ชั้นการทำงาน:</span><span class="en">Organized into 4 operational layers:</span></p>
+
+    <div class="cards two">
+      <div class="card">
+        <h3><span class="th">AI &amp; Multi-Agent Core</span><span class="en">AI &amp; Multi-Agent Core</span></h3>
+        <ul class="clean" style="margin-bottom:0">
+          <li><strong>LangGraph</strong> — <span class="th">StateGraph ควบคุม 4 เอเจนต์ขนาน + Reviewer Gate</span><span class="en">StateGraph controlling 4 agents + Reviewer Gate</span></li>
+          <li><strong>Failover Chain (8 Providers)</strong> — <span class="th">Groq, Cerebras, Mistral, Cloudflare, OpenRouter, UnoRouter, Router9, Ollama</span><span class="en">Groq, Cerebras, Mistral, Cloudflare, OpenRouter, UnoRouter, Router9, Ollama</span></li>
+          <li><strong>google-genai</strong> — <span class="th">Google Gemini 2.0/1.5 client รองรับ Structured JSON</span><span class="en">Google Gemini 2.0/1.5 client with structured JSON</span></li>
+          <li><strong>Pydantic v2</strong> — <span class="th">ตรวจสอบ Schema output และ Contract ของ Agent ทั้งหมด</span><span class="en">Strict JSON contract validation for all agent outputs</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="th">ข้อมูลการเงิน &amp; คำนวณคณิตศาสตร์</span><span class="en">Market Data &amp; Deterministic Engine</span></h3>
+        <ul class="clean" style="margin-bottom:0">
+          <li><strong>Settrade Open API</strong> — <span class="th">ข้อมูลราคาและงบหุ้นไทย Real-time (Official feed)</span><span class="en">Official real-time Thai market quotes and financial statements</span></li>
+          <li><strong>yfinance &amp; FMP</strong> — <span class="th">ข้อมูลราคาต่างประเทศ และงบการเงินสำรอง</span><span class="en">Global historical prices and balance sheet backups</span></li>
+          <li><strong>Finnhub &amp; Google News RSS</strong> — <span class="th">ฟีดข่าวดิบรายตัวและข่าวมหภาค 20-30 ข่าว</span><span class="en">Company-specific news and macro news feeds</span></li>
+          <li><strong>pandas &amp; numpy</strong> — <span class="th">คำนวณ RSI-14, SMA-20/50, ความผันผวน, D/E, ROE, Margin</span><span class="en">Computes RSI-14, SMA, volatility, D/E, ROE, Net Margin</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="th">ช่องทางติดต่อ &amp; UX</span><span class="en">Channels &amp; UX Engineering</span></h3>
+        <ul class="clean" style="margin-bottom:0">
+          <li><strong>line-bot-sdk</strong> — <span class="th">LINE Flex Messages แสดงผลการ์ดแบบ Interactive และ Rich Menu</span><span class="en">Interactive LINE Flex Message cards and Rich Menus</span></li>
+          <li><strong>QuickChart.io</strong> — <span class="th">สร้างกราฟ Sparkline 30 วันฝังในการ์ด LINE สวยงาม</span><span class="en">Deterministic 30-day sparkline charts embedded in LINE cards</span></li>
+          <li><strong>Web Chat &amp; Discord</strong> — <span class="th">Web UI น้ำหนักเบา และบอท Discord ใช้ Dispatcher เดียวกัน</span><span class="en">Lightweight Web UI and Discord bot running on shared command layer</span></li>
+          <li><strong>Traffic-Light Classifier</strong> — <span class="th">จัดกลุ่มป้ายสี 🟢 Positive / 🔴 Negative / 🟡 Watch อัตโนมัติ</span><span class="en">Auto-classifies advice into 🟢 Positive / 🔴 Negative / 🟡 Watch</span></li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3><span class="th">คลาวด์ &amp; โครงสร้างพื้นฐาน</span><span class="en">Cloud &amp; Infrastructure</span></h3>
+        <ul class="clean" style="margin-bottom:0">
+          <li><strong>Google Cloud Run</strong> — <span class="th">Serverless container, auto-scale เหลือ 0 เมื่อไม่มีงาน</span><span class="en">Serverless container scaling to 0 when idle</span></li>
+          <li><strong>Google Firestore</strong> — <span class="th">เก็บ User Profile, Watchlists, Snapshot cache และ Mutex Lock</span><span class="en">Stores watchlists, snapshots, and mutex locks</span></li>
+          <li><strong>Cloud Scheduler</strong> — <span class="th">ยิง Cron ส่งสรุปพอร์ตหุ้นประจำวัน (เช้า/เย็น)</span><span class="en">Cron triggers for daily digest delivery (morning/evening)</span></li>
+          <li><strong>Docker &amp; Cloud Build</strong> — <span class="th">CI/CD สร้าง Image อัตโนมัติเมื่อ Git Push</span><span class="en">Automated container image CI/CD on git push</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CH7: WORKFLOW ============ -->
+  <section id="ch7">
+    <div class="kicker"><span class="th">บทที่ 7</span><span class="en">Chapter 7</span></div>
+    <h2><span class="th">Workflow การวิเคราะห์หุ้นในระบบ</span><span class="en">Stock analysis execution workflow</span></h2>
+
+    <h3 style="margin-top:28px"><span class="th">เส้นทางการทำงานจากผู้ใช้สู่ผลลัพธ์</span><span class="en">End-to-end request lifecycle</span></h3>
+    <div class="steps">
+      <div class="step">
+        <h3><span class="th">1. ผู้ใช้กดปุ่มดูหุ้นบน LINE หรือ Web</span><span class="en">1. User requests stock on LINE or Web</span></h3>
+        <p><span class="th">กดเลือกหุ้น เช่น "PTT" → ระบบตรวจ Mutex Debounce Lock 30 วินาที เพื่อป้องกันการกดปุ่มซ้ำซ้อน</span>
+           <span class="en">Selects stock e.g. "PTT" → verifies 30-second mutex debounce lock to prevent duplicate taps.</span></p>
+      </div>
+      <div class="step">
+        <h3><span class="th">2. ตรวจสอบ Shared Market Snapshot Cache</span><span class="en">2. Check shared market snapshot cache</span></h3>
+        <p><span class="th">ตรวจดูว่ามี Snapshot ที่ดึงไว้ใน 15 นาทีที่ผ่านมาหรือไม่ ถ้ามีใช้ร่วมกันได้ทันที ไม่ต้องดึงซ้ำ</span>
+           <span class="en">Checks if a shared snapshot was fetched in the last 15 minutes to save data requests.</span></p>
+      </div>
+      <div class="step">
+        <h3><span class="th">3. Deterministic Extraction &amp; Cleaning</span><span class="en">3. Deterministic extraction &amp; cleaning</span></h3>
+        <p><span class="th">ดึงราคา งบการเงิน และข่าว 20-30 ข่าว → Python คำนวณ RSI/SMA/Support/Resistance และคลีนตัดข่าวขยะเหลือ Top 8</span>
+           <span class="en">Fetches feeds → Python computes RSI/SMA/ratios and cleanses raw news to top 8 impactful stories.</span></p>
+      </div>
+      <div class="step">
+        <h3><span class="th">4. Multi-Agent Analysis (ขนาน &amp; ตรวจสอบ)</span><span class="en">4. Multi-agent execution &amp; review</span></h3>
+        <p><span class="th"><code>NewsContextAgent</code> และ <code>FundamentalTechnicalAgent</code> รันขนานกัน → ส่งต่อให้ <code>PersonalizedAdviceAgent</code> สรุปคำแนะนำ → ตรวจสอบผ่าน <code>RiskEvidenceReviewer</code> Gate</span>
+           <span class="en">News and Tech agents run in parallel → feed advice synthesizer → audited by Risk &amp; Evidence Reviewer.</span></p>
+      </div>
+      <div class="step">
+        <h3><span class="th">5. Render LINE Flex Cards &amp; Push</span><span class="en">5. Render LINE Flex card &amp; push</span></h3>
+        <p><span class="th">จัดโครงสร้าง Flex Message พร้อมกราฟ Sparkline 30 วัน, ป้ายไฟจราจร 🟢🔴🟡 และ Tag <code>[จากข่าว]</code> <code>[จากงบ]</code> <code>[จากสถิติ]</code> ส่งตรงเข้า LINE</span>
+           <span class="en">Constructs interactive Flex card with 30-day sparkline, traffic-light tags, and 3-pillar evidence sources.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ CH8: OUTCOMES ============ -->
+  <section id="ch8" class="alt">
+    <div class="kicker"><span class="th">บทที่ 8</span><span class="en">Chapter 8</span></div>
+    <h2><span class="th">ผลลัพธ์ที่ได้ และแผนต่อยอด</span><span class="en">Outcomes achieved and what comes next</span></h2>
+
+    <div class="grid4">
+      <div class="stat">
+        <div class="big">8 ค่าย</div>
+        <div class="lbl"><span class="th">LLM ในสาย Failover ทำงานไม่มี Downtime</span><span class="en">LLMs in failover chain for zero downtime</span></div>
+      </div>
+      <div class="stat">
+        <div class="big">~ $0.00</div>
+        <div class="lbl"><span class="th">ต้นทุนเฉลี่ยต่อเดือน (GCP Scale-to-Zero)</span><span class="en">Monthly cloud cost on scale-to-zero</span></div>
+      </div>
+      <div class="stat">
+        <div class="big">40/40</div>
+        <div class="lbl"><span class="th">Automated Unit Tests ผ่านทั้งหมด 100%</span><span class="en">Automated unit test suite passing 100%</span></div>
+      </div>
+      <div class="stat">
+        <div class="big">3 ช่องทาง</div>
+        <div class="lbl"><span class="th">LINE, Web Chat, Discord ใช้ Agent เดียวกัน</span><span class="en">LINE, Web, Discord sharing single engine</span></div>
+      </div>
+    </div>
+
+    <ul class="clean" style="margin-top:32px">
+      <li><span class="th">วิเคราะห์หุ้นแบบ <strong>ตรวจสอบที่มาได้ 100%</strong> แยกหลักฐาน 3 หมวด ไม่ยอมให้ AI แต่งตัวเลข</span>
+          <span class="en">Stock research with <strong>100% traceable provenance</strong> across 3 pillars; zero hallucinated math.</span></li>
+      <li><span class="th">เสถียรภาพระดับสูงด้วยสาย Failover 8 เจ้า แม้ Free Tier บางค่ายจะตัดโควตาหรือถอดโมเดลออก ระบบก็สลับค่ายอัตโนมัติ</span>
+          <span class="en">High operational resilience: failover smoothly bypasses rate-limited or retired models without disruption.</span></li>
+      <li><span class="th">ระบบแคชและ Mutex ป้องกัน Request ซ้ำซ้อน ช่วยประหยัด Quota และป้องกันการเรียก API เกินจำเป็น</span>
+          <span class="en">15-minute shared snapshots and 30-second debounce locks prevent redundant external requests.</span></li>
+    </ul>
+
+    <div class="callout" style="margin-top:32px">
+      <strong><span class="th">แผนต่อยอดในอนาคต (Roadmap):</span><span class="en">Future roadmap:</span></strong><br>
+      <span class="th">1. เชื่อมต่อ BigQuery Analytics เพื่อประเมินความแม่นยำของทิศทางคำแนะนำย้อนหลัง (Backtesting)<br>
+      2. ยกระดับการเชื่อมต่อ Settrade Open API สู่ระดับ Production ด้วย Credential ทางการ<br>
+      3. เพิ่มระบบแจ้งเตือนแบบเรียลไทม์เมื่อราคาหุ้นทะลุแนวรับ/แนวต้านที่คำนวณไว้ในวัน</span>
+      <span class="en">1. Connect BigQuery analytics to backtest predictive direction accuracy over time.<br>
+      2. Elevate Settrade Open API integration from sandbox to official production broker feed.<br>
+      3. Implement real-time push alerts when stock prices cross computed support/resistance thresholds.</span>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  <p>
+    <span class="th">AIAgent LineStock — ผู้ช่วยวิเคราะห์หุ้นอ้างอิงหลักฐาน <strong>ไม่เดาตัวเลข มีที่มาทุกข้อความ ต้นทุนใกล้ $0</strong><br>
+    รันบน Google Cloud Run · โค้ด: Python + LangGraph + Flask + Firestore + Pydantic v2</span>
+    <span class="en">AIAgent LineStock — Evidence-based stock research assistant: <strong>zero math hallucinations, fully grounded, near-$0 cost</strong><br>
+    Running on Google Cloud Run · Stack: Python + LangGraph + Flask + Firestore + Pydantic v2</span>
+  </p>
+</footer>
+
+<script>
+  const ROOT = document.documentElement;
+  const btnTH = document.getElementById('btn-th');
+  const btnEN = document.getElementById('btn-en');
+
+  function setLang(lang){
+    ROOT.setAttribute('data-lang', lang);
+    ROOT.setAttribute('lang', lang === 'en' ? 'en' : 'th');
+    btnTH.classList.toggle('active', lang === 'th');
+    btnEN.classList.toggle('active', lang === 'en');
+    try{ localStorage.setItem('stock_pres_lang', lang); }catch(e){}
+  }
+
+  // restore saved preference
+  try{
+    const saved = localStorage.getItem('stock_pres_lang');
+    if(saved === 'en' || saved === 'th'){ setLang(saved); }
+  }catch(e){}
+
+  // scroll progress bar
+  const bar = document.getElementById('progress');
+  window.addEventListener('scroll', function(){
+    const h = document.documentElement;
+    const max = h.scrollHeight - h.clientHeight;
+    bar.style.width = (max > 0 ? (h.scrollTop / max) * 100 : 0) + '%';
+  }, {passive:true});
+</script>
+</body>
+</html>

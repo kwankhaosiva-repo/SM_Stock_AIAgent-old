@@ -4,7 +4,7 @@ import sys
 # Ensure src is in python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask
+from flask import Flask, send_file, jsonify
 from config import Config
 from api.line_webhook import line_webhook_bp
 from api.web_chat import web_chat_bp
@@ -15,6 +15,33 @@ app.config.from_object(Config)
 # Register channel blueprints: LINE webhook + Web chat UI
 app.register_blueprint(line_webhook_bp)
 app.register_blueprint(web_chat_bp)
+
+# Path to docs/presentation.html (project root / docs / presentation.html)
+_PRESENTATION_HTML = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "docs",
+    "presentation.html",
+)
+
+
+def _render_presentation():
+    if os.path.exists(_PRESENTATION_HTML):
+        response = send_file(_PRESENTATION_HTML, mimetype="text/html; charset=utf-8")
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+    return jsonify({"ok": False, "error": "docs/presentation.html not found"}), 404
+
+
+@app.route("/presentation", methods=['GET'])
+def presentation():
+    """Serves the project presentation HTML page (same as docs/presentation.html)"""
+    return _render_presentation()
+
+
+@app.route("/brief", methods=['GET'])
+def brief():
+    """Short alias for /presentation"""
+    return _render_presentation()
 
 
 @app.route("/health", methods=['GET'])
