@@ -139,6 +139,42 @@ class LineReportingTests(unittest.TestCase):
         self.assertIn('DELTA.BK', raw_json)
         self.assertIn('CPALL.BK', raw_json)
 
+    def test_market_brief_card_buttons_and_copy(self):
+        brief_card = LineReportRenderer.render_market_brief_card('PTT.BK', self.report)
+        self.assertEqual(brief_card.get('type'), 'bubble')
+        footer_json = json.dumps(brief_card.get('footer', {}), ensure_ascii=False)
+
+        # Has Financials button
+        self.assertIn('action=financials&symbol=PTT.BK', footer_json)
+        # Has News button
+        self.assertIn('action=news&symbol=PTT.BK', footer_json)
+        # Has Native Copy button
+        self.assertIn('"type": "clipboard"', footer_json)
+        self.assertIn('คัดลอกสรุป', footer_json)
+        # Refresh is REMOVED
+        self.assertNotIn('action=refresh', footer_json)
+
+    def test_financials_card_has_only_copy_button(self):
+        fin_card = LineReportRenderer.render_financials_card(
+            symbol='PTT.BK',
+            report=self.report,
+            fin_data={'raw': {'net_income': 100, 'revenue': 1000, 'equity': 500, 'total_liabilities': 300}},
+        )
+        self.assertEqual(fin_card.get('type'), 'bubble')
+        footer = fin_card.get('footer', {})
+        footer_json = json.dumps(footer, ensure_ascii=False)
+
+        # Has ONLY Copy button
+        self.assertIn('"type": "clipboard"', footer_json)
+        self.assertIn('คัดลอกข้อมูลวิเคราะห์', footer_json)
+        # All other buttons must be removed
+        self.assertNotIn('action=financials', footer_json)
+        self.assertNotIn('action=news', footer_json)
+        self.assertNotIn('action=why', footer_json)
+        self.assertNotIn('action=refresh', footer_json)
+        self.assertNotIn('action=glossary', footer_json)
+        self.assertNotIn('action=set_time', footer_json)
+
 
 if __name__ == '__main__':
     unittest.main()

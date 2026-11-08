@@ -51,6 +51,26 @@ def _push(line_user_id: str, messages) -> None:
         print(f"[Push Error] {exc}")
 
 
+def show_line_loading(chat_id: str, seconds: int = 20) -> None:
+    """Display native LINE loading animation (3 animated dots) in the user chat."""
+    token = getattr(Config, 'LINE_CHANNEL_ACCESS_TOKEN', '')
+    if not token or not chat_id:
+        return
+    try:
+        import requests
+        requests.post(
+            'https://api.line.me/v2/bot/chat/loading/start',
+            headers={
+                'Authorization': f'Bearer {token}',
+                'Content-Type': 'application/json',
+            },
+            json={'chatId': chat_id, 'loadingSeconds': max(5, min(seconds, 60))},
+            timeout=2.0,
+        )
+    except Exception as exc:
+        print(f"[Loading Animation Error] {exc}")
+
+
 def _process_add_stocks(line_user_id: str, symbols: list[str]) -> None:
     confirm_flexes: list = []
     duplicate_list: list = []
@@ -81,7 +101,6 @@ def _process_add_stocks(line_user_id: str, symbols: list[str]) -> None:
 def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
     from analysis.news_analysis import analyze_news
     from data.market_snapshot_service import MarketSnapshotService
-    from reporting.line_report_renderer import LineReportRenderer
     from reporting.news_detail_renderer import render_news_detail_card
 
     snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
@@ -90,9 +109,6 @@ def _process_news(line_user_id: str, symbol: str, profile: dict) -> None:
     # stays URL-free because clean_headline already stripped links upstream.
     detail_bubble = render_news_detail_card(snapshot.symbol, brief)
     _push(line_user_id, FlexSendMessage(alt_text=f"ข่าว {snapshot.symbol} เรียงตามน้ำหนักกระทบ", contents=detail_bubble))
-    # Follow with the synthesized brief card (flash summary + reasons).
-    brief_bubble = LineReportRenderer.render_market_brief_card(snapshot.symbol, brief)
-    _push(line_user_id, FlexSendMessage(alt_text=f"Market Brief {snapshot.symbol}", contents=brief_bubble))
 
 
 def _process_why(line_user_id: str, symbol: str) -> None:
@@ -168,44 +184,28 @@ def _process_why(line_user_id: str, symbol: str) -> None:
 
 
 def _process_financials(line_user_id: str, symbol: str) -> None:
-    """Financial statements WITH interpretation — ratios, formulas, implications."""
+    """Financial statements & technical deep-dive — rendered as interactive Flex bubble with Copy button."""
     from data.financials_service import FinancialsService
     from data.market_snapshot_service import MarketSnapshotService
-    from analysis.financial_ratios import compute_ratios, build_financial_reasoning
+    from reporting.line_report_renderer import LineReportRenderer
 
-    snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
     try:
-        fin_data = FinancialsService().get_financials(symbol)
-    except Exception as exc:
-        print(f'[Financials] unavailable for {symbol}: {exc}')
+        snapshot, _ = MarketSnapshotService().get_or_collect(symbol)
         fin_data = None
+        try:
+            fin_data = FinancialsService().get_financials(symbol)
+        except Exception as exc:
+            print(f'[Financials] service error for {symbol}: {exc}')
 
-    fin_text = (
-        f"📊 ข้อมูลทางการเงิน {symbol}:\n"
-        f"- ราคา: {snapshot.price:,.2f}\n"
-        f"- P/E: {snapshot.pe_ratio or 'N/A'} (ราคา ÷ กำไรต่อหุ้น = จ่ายกี่เท่าของกำไรต่อปี)\n"
-        f"- Dividend Yield: {snapshot.div_yield or 'N/A'}% (เงินปันผล ÷ ราคาหุ้น)\n\n"
-    )
-    raw = (fin_data or {}).get('raw') or {}
-    if raw:
-        ratios = compute_ratios(raw)
-        fin_text += "🧮 วิเคราะห์อัตราส่วน (จากงบล่าสุด):\n"
-        for line in build_financial_reasoning(raw, ratios, snapshot.price):
-            fin_text += f"• {line}\n"
-        fin_text += "\n"
-    if fin_data and fin_data.get('balance_sheet'):
-        fin_text += f"🏦 งบดุล (งวด {fin_data.get('period') or 'ล่าสุด'}):\n"
-        for label, value in fin_data['balance_sheet'][:6]:
-            fin_text += f"- {label}: {value}\n"
-    if fin_data and fin_data.get('income'):
-        fin_text += "\n💰 งบกำไรขาดทุน:\n"
-        for label, value in fin_data['income'][:4]:
-            fin_text += f"- {label}: {value}\n"
-    if fin_data:
-        fin_text += f"\n(แหล่งข้อมูล: {fin_data.get('source')})"
-    else:
-        fin_text += "🏦 งบการเงินยังไม่พร้อมใช้งานสำหรับหุ้นตัวนี้ — แสดงเฉพาะข้อมูลเทคนิคชั่วคราว"
-    _push(line_user_id, TextSendMessage(text=fin_text[:4900]))
+        bubble = LineReportRenderer.render_financials_card(
+            symbol=symbol,
+            snapshot=snapshot,
+            fin_data=fin_data,
+        )
+        _push(line_user_id, FlexSendMessage(alt_text=f"ข้อมูลงบการเงินและเทคนิคอล {symbol}", contents=bubble))
+    except Exception as exc:
+        print(f"[Financials] Failed to render card for {symbol}: {exc}")
+        _push(line_user_id, TextSendMessage(text=f"ไม่สามารถโหลดข้อมูลงบการเงินของ {symbol} ได้ในขณะนี้"))
 
 
 def check_stock_exists(symbol: str):
@@ -296,7 +296,7 @@ def handle_message(event):
         if not potential_stocks:
             _quick_reply(event, f"ไม่พบชื่อหุ้นที่ถูกต้อง: {text}")
             return
-        _quick_reply(event, f"กำลังตรวจสอบ {len(potential_stocks)} หุ้น... สักครู่ครับ")
+        show_line_loading(user_id, seconds=15)
         # Heavy: yfinance lookups — run in background, deliver via push_message
         _BACKGROUND.submit(_process_add_stocks, user_id, potential_stocks)
         return
@@ -480,19 +480,14 @@ def handle_postback(event):
                 if flex:
                     line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="Watchlist", contents=flex['contents']))
 
-        # --- Report Actions (Rule 8 postback buttons: Why?, News, Financials, Refresh, Schedule) ---
+        # --- Report Actions (Postback buttons: Why?, News, Financials, Schedule) ---
         elif action in ('why', 'news', 'financials') and symbol:
             # Debounce: rapid repeated presses within 30s are ignored so the
             # same analysis never runs twice and users never get duplicates.
             if not store.try_acquire_action_lock(user_id, action, symbol, ttl_seconds=30):
-                _quick_reply(event, f"⏳ กำลังประมวลผล {symbol} อยู่แล้ว รอผลลัพธ์สักครู่ครับ")
+                _quick_reply(event, f"กำลังประมวลผล {symbol} อยู่แล้ว รอผลลัพธ์สักครู่ครับ")
                 return
-            labels = {
-                'why': f"กำลังวิเคราะห์ {symbol}... สักครู่ครับ",
-                'news': f"📡 กำลังคัดกรองและจัดอันดับข่าว {symbol}... สักครู่ครับ",
-                'financials': f"กำลังดึงงบการเงิน {symbol}... สักครู่ครับ",
-            }
-            _quick_reply(event, labels[action])
+            show_line_loading(user_id, seconds=20)
             handlers = {'why': _process_why, 'news': _process_news, 'financials': _process_financials}
             if action == 'news':
                 _BACKGROUND.submit(
@@ -509,7 +504,7 @@ def handle_postback(event):
         elif action in ('get_report', 'refresh'):
             # Debounce per symbol (refresh) or per user (full watchlist pull).
             if not store.try_acquire_action_lock(user_id, action, symbol, ttl_seconds=30):
-                _quick_reply(event, "⏳ มีรายการที่กำลังประมวลผลอยู่แล้ว รอสักครู่ครับ")
+                _quick_reply(event, "มีรายการที่กำลังประมวลผลอยู่แล้ว รอสักครู่ครับ")
                 return
 
             target_symbol = symbol if action == 'refresh' else None
@@ -523,10 +518,7 @@ def handle_postback(event):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="ไม่มีหุ้นในรายการ"))
                 return
 
-            line_bot_api.reply_message(
-                event.reply_token,
-                TextSendMessage(text=f"กำลังประมวลผลข้อมูลหุ้น {len(items)} รายการ กรุณารอสักครู่..."),
-            )
+            show_line_loading(user_id, seconds=min(60, max(20, len(items) * 15)))
 
             user_settings_snapshot = {
                 'core_strategy': user.get('core_strategy'),

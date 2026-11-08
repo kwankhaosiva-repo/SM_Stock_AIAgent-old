@@ -44,10 +44,11 @@ flowchart LR
 ```
 
 ### Key UX guarantees
-- **Instant ack + press debounce**: every analysis button replies with a "⏳ processing" ack immediately; repeated presses within 30 s per user/action/symbol are locked (no duplicate AI calls, no duplicate cards).
-- **News detail on demand**: the summary card shows 2-line telegraph-style headlines; the **News** button opens a full card ranked by market impact, per-news verdict, "why it matters" line, and a tappable **original-source button** (URLs come only from the digest, never LLM-invented).
-- **Three-bucket reasons**: every recommendation separates evidence into 📰 News / 🏦 Financial statements / 📊 Statistics (P/E, RSI, support-resistance with derivation).
-- **Traffic-light advice**: each advice line is tagged 🟢 Positive / 🔴 Negative / 🟡 Watch so the user can scan the verdict before reading; reason lines are auto-cleaned (URLs, citation markers, placeholders, redundant restatements stripped).
+- **Native Loading Animation & Debounce**: every action triggers LINE's native `...` animated loading indicator (`/v2/bot/chat/loading/start`) without polluting chat history with temporary text; repeated presses within 30 s per user/action/symbol are locked (no duplicate AI calls, no duplicate cards).
+- **Progressive Disclosure Architecture**: the primary **[Report]** and **[Scheduler]** card delivers an executive **Market Brief** (status verdict, top news flash, and actionable advice); deep-dive technical indicators and balance sheet ratios are accessible on demand via the **[Financials]** card.
+- **1-Tap Clipboard Action (Human-in-the-Loop)**: built-in native LINE `clipboard` actions on cards allow users to instantly copy structured summaries or financial analysis text into external LLMs (ChatGPT / Claude / Gemini) for custom portfolio inquiries.
+- **Three-bucket reasons**: every recommendation separates evidence into `[จากข่าว]` News / `[จากงบ]` Financial statements / `[จากสถิติ]` Statistics (P/E, RSI, support-resistance with derivation).
+- **Traffic-light advice**: each advice line is tagged with institutional semantic dots `● Positive` / `● Negative` / `● Watch` for instant scannability; reason lines are auto-cleaned (URLs, citation markers, placeholders, redundant restatements stripped).
 
 ---
 

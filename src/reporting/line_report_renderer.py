@@ -2,9 +2,34 @@ from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional
+from linebot.models.actions import Action
+from linebot.models import flex_message
 from analysis.chart_service import ChartService
 from analysis.news_cleaning import clean_headline
 from reporting.indicator_view import GLOSSARY, build_indicator_sections
+
+
+class ClipboardAction(Action):
+    """Native LINE clipboard action for 1-tap copy to system clipboard."""
+
+    def __init__(self, label=None, clipboard_text=None, **kwargs):
+        super(ClipboardAction, self).__init__(**kwargs)
+        self.type = 'clipboard'
+        self.label = label
+        self.clipboard_text = clipboard_text
+
+
+# Ensure linebot deserializer recognizes native clipboard action
+_orig_get_action = getattr(flex_message, 'get_action', None)
+if _orig_get_action:
+    def _patched_get_action(action):
+        if isinstance(action, dict) and action.get('type') == 'clipboard':
+            return ClipboardAction(
+                label=action.get('label'),
+                clipboard_text=action.get('clipboardText') or action.get('clipboard_text'),
+            )
+        return _orig_get_action(action)
+    flex_message.get_action = _patched_get_action
 
 # Reason strings that carry no information for the reader.
 _PLACEHOLDER_RE = re.compile(r'ไม่มีข้อมูล|ไม่พบข้อมูล|ไม่สามารถ|ประเมินไม่ได้|^\s*[-–—]?\s*$')
@@ -17,9 +42,9 @@ _BUCKET_TAG_RE = re.compile(r'\s*\[(?:จากข่าว|จากงบ(?:�
 # Advice-tone classifier: each recommendation line gets a traffic-light tag
 # (English keywords — visually scannable, as chosen by product decision).
 _ADVICE_TONES = {
-    'Positive': {'emoji': '🟢', 'label': 'Positive', 'color': '#16803C'},
-    'Negative': {'emoji': '🔴', 'label': 'Negative', 'color': '#B42318'},
-    'Watch': {'emoji': '🟡', 'label': 'Watch', 'color': '#8A6100'},
+    'Positive': {'emoji': '●', 'label': 'Positive', 'color': '#16803C'},
+    'Negative': {'emoji': '●', 'label': 'Negative', 'color': '#B42318'},
+    'Watch': {'emoji': '●', 'label': 'Watch', 'color': '#8A6100'},
 }
 _ADVICE_NEG_KW = ('ควรขาย', 'ทยอยขาย', 'ลดสัดส่วน', 'หลีกเลี่ยง', 'เสี่ยงขาดทุน', 'กดดัน', 'ลดลง', 'ร่วง', 'ดิ่ง', 'โดนขาย', 'ฟ้อง', 'คดี', 'ปรับลด', 'ต่ำกว่าคาด', 'ขาดทุน', 'sell', 'avoid', 'downside', 'negative', 'threat', 'risk')
 _ADVICE_WATCH_KW = ('จับตา', 'ติดตาม', 'รอดู', 'ระวัง', 'รอให้', 'เฝ้าดู', 'ช่วงระวัง', 'โซนกลาง', 'แนวรับ', 'แนวต้าน', 'ผันผวน', 'watch', 'hold', 'monitor', 'wait')
@@ -107,9 +132,9 @@ class LineReportRenderer:
                 legacy_advice.get('reasons') or [report.get('reason') or "ไม่มีข้อมูลเชิงลึก"]
             )
         section_defs = [
-            ('news', '📰 จากข่าว', cats.get('news') or [], '#16803C', False),
-            ('financials', '🏦 จากงบการเงิน', cats.get('financials') or [], '#1D4ED8', False),
-            ('stats', '📊 จากตัวเลขสถิติ', cats.get('stats') or [], '#B45309', True),
+            ('news', '[จากข่าว]', cats.get('news') or [], '#16803C', False),
+            ('financials', '[จากงบการเงิน]', cats.get('financials') or [], '#1D4ED8', False),
+            ('stats', '[จากตัวเลขสถิติ]', cats.get('stats') or [], '#B45309', True),
         ]
         reason_sections = []
         for bucket, title, items, color, drop_redundant in section_defs:
@@ -214,7 +239,7 @@ class LineReportRenderer:
                     "layout": "vertical",
                     "margin": "sm",
                     "contents": [
-                        {"type": "text", "text": "📈 กราฟแนวโน้มราคา 30 วัน", "size": "xxs", "color": "#6B7280", "align": "center"},
+                        {"type": "text", "text": "กราฟแนวโน้มราคา 30 วัน", "size": "xxs", "color": "#6B7280", "align": "center"},
                         {
                             "type": "image",
                             "url": chart_url,
@@ -277,7 +302,7 @@ class LineReportRenderer:
             body_contents.append({"type": "separator", "margin": "md"})
             body_contents.append({
                 "type": "text",
-                "text": "🔎 บทวิเคราะห์เชิงเทคนิค (แยกตามช่วงเวลา):",
+                "text": "บทวิเคราะห์เชิงเทคนิค (แยกตามช่วงเวลา):",
                 "size": "xs", "weight": "bold", "color": "#374151", "margin": "md",
             })
             for sec in indicator_sections:
@@ -313,7 +338,7 @@ class LineReportRenderer:
         # Reasons section
         body_contents.extend([
             {"type": "separator", "margin": "md"},
-            {"type": "text", "text": "📌 เหตุผลเชิงประจักษ์ (แยกตามแหล่งข้อมูล):", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {"type": "text", "text": "เหตุผลเชิงประจักษ์ (แยกตามแหล่งข้อมูล):", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
             {
                 "type": "box",
                 "layout": "vertical",
@@ -328,7 +353,7 @@ class LineReportRenderer:
                 "layout": "vertical",
                 "margin": "sm",
                 "contents": [
-                    {"type": "text", "text": "⚠️ ความเสี่ยงสำคัญ:", "size": "xs", "weight": "bold", "color": "#B42318"},
+                    {"type": "text", "text": "ความเสี่ยงสำคัญ:", "size": "xs", "weight": "bold", "color": "#B42318"},
                     {"type": "text", "text": risk_text, "size": "xs", "color": "#4B5563", "wrap": True, "margin": "xs"},
                 ],
             },
@@ -338,7 +363,7 @@ class LineReportRenderer:
                 "layout": "vertical",
                 "margin": "sm",
                 "contents": [
-                    {"type": "text", "text": "👀 สิ่งที่ควรติดตามต่อไป:", "size": "xs", "weight": "bold", "color": "#4B5563"},
+                    {"type": "text", "text": "สิ่งที่ควรติดตามต่อไป:", "size": "xs", "weight": "bold", "color": "#4B5563"},
                     {"type": "text", "text": f"{(_advice_tone(watch_text) or _ADVICE_TONES['Watch'])['emoji']} {watch_text}", "size": "xs", "color": "#4B5563", "wrap": True, "margin": "xs"},
                 ],
             },
@@ -434,41 +459,39 @@ class LineReportRenderer:
 
     @classmethod
     def render_market_brief_card(cls, symbol: str, brief: Dict[str, Any]) -> Dict[str, Any]:
-        """Render the AI news-analysis Market Brief as a Flex bubble.
+        """Render the Market Brief (Executive Summary) as a Flex bubble.
 
-        `brief` is the dict produced by analysis.news_analysis.analyze_news:
-        summary, news[], impact (Positive|Mixed|Negative), advice[], disclaimer,
-        provider.
+        Accepts either `brief` from analysis.news_analysis.analyze_news
+        or `report` from workflows.report_workflow.ReportWorkflow.
         """
-        impact = str(brief.get('impact', 'Mixed'))
-        if impact not in ('Positive', 'Mixed', 'Negative'):
-            impact = 'Mixed'
+        impact = str(brief.get('impact') or brief.get('signal') or 'Neutral')
+        if impact not in ('Positive', 'Mixed', 'Negative', 'Neutral', 'Cautious'):
+            impact = 'Neutral'
         impact_cfg = {
-            'Positive': {'color': '#16803C', 'bg': '#E8F5E9', 'emoji': '🟢'},
-            'Mixed': {'color': '#8A6100', 'bg': '#FFF8E1', 'emoji': '🟡'},
-            'Negative': {'color': '#B42318', 'bg': '#FFEBEE', 'emoji': '🔴'},
-        }[impact]
+            'Positive': {'color': '#16803C', 'bg': '#E8F5E9', 'label': 'Positive'},
+            'Mixed': {'color': '#8A6100', 'bg': '#FFF8E1', 'label': 'Mixed'},
+            'Neutral': {'color': '#8A6100', 'bg': '#FFF8E1', 'label': 'Neutral'},
+            'Negative': {'color': '#B42318', 'bg': '#FFEBEE', 'label': 'Negative'},
+            'Cautious': {'color': '#B42318', 'bg': '#FFEBEE', 'label': 'Cautious'},
+        }.get(impact, {'color': '#8A6100', 'bg': '#FFF8E1', 'label': 'Neutral'})
         cfg = impact_cfg
 
         sym = str(symbol).upper()
         provider = str(brief.get('provider') or 'ai')
         provider_label = 'โหมดสำรอง (ตัวเลขล้วน)' if provider == 'fallback' else f'AI: {provider}'
 
-        # Telegram-style flash (2 one-liners) — the deep ranked list with
-        # clickable links lives behind the News button, not on this card.
-        # Summary — strip citation markers ([6]) that only make sense in the
-        # ranked detail view, then trim to a readable length.
-        summary_text = _CITATION_RE.sub(' ', str(brief.get('summary') or ''))
+        # Summary text
+        summary_raw = str(brief.get('summary') or brief.get('reason') or '')
+        summary_text = _CITATION_RE.sub(' ', summary_raw)
         summary_text = re.sub(r'\s{2,}', ' ', summary_text).strip()
         if len(summary_text) > 260:
             summary_text = summary_text[:259].rstrip() + '…'
 
-        flash = [str(f) for f in (brief.get('news_flash') or [])][:2]
-        if not flash:
-            flash = [str(n) for n in (brief.get('news') or [])][:2]
-        news_count = brief.get('news_count')
+        # Flash headlines
+        flash = [str(f) for f in (brief.get('news_flash') or brief.get('news') or [])][:2]
+        news_count = brief.get('news_count') or len(brief.get('news') or [])
         raw_count = brief.get('raw_count')
-        news_header = '🗞 ข่าวเด่น'
+        news_header = 'ข่าวเด่น'
         if news_count:
             if raw_count and raw_count > news_count:
                 news_header += f' (คัด {news_count} จากที่ดึงมา {raw_count} ข่าว)'
@@ -490,15 +513,15 @@ class LineReportRenderer:
             flash_rows = [{"type": "text", "text": "ไม่มีข่าวสารล่าสุดในระบบ", "size": "xs", "color": "#9CA3AF"}]
 
         # Categorized reasons: news / financials / stats
-        cats = brief.get('reasons') or {}
+        cats = brief.get('reasons') or brief.get('reason_categories') or {}
         cat_defs = [
-            ('news', '📰', cats.get('news') or [], '#16803C'),
-            ('financials', '🏦', cats.get('financials') or [], '#1D4ED8'),
-            ('stats', '📊', cats.get('stats') or [], '#B45309'),
+            ('news', '[จากข่าว]', cats.get('news') or [], '#16803C'),
+            ('financials', '[จากงบ]', cats.get('financials') or [], '#1D4ED8'),
+            ('stats', '[จากสถิติ]', cats.get('stats') or [], '#B45309'),
         ]
         reason_rows = []
-        for bucket, emoji, items, color in cat_defs:
-            tag = _BUCKET_TAGS[bucket]
+        for bucket, tag_label, items, color in cat_defs:
+            tag = _BUCKET_TAGS.get(bucket, tag_label)
             cleaned_items = [
                 t for t in (_clean_reason(i) for i in (items or []))
                 if t and not _PLACEHOLDER_RE.search(t)
@@ -513,14 +536,26 @@ class LineReportRenderer:
                     "layout": "horizontal",
                     "spacing": "xs",
                     "contents": [
-                        {"type": "text", "text": emoji, "size": "xs", "flex": 0},
+                        {"type": "text", "text": "•", "size": "xs", "color": color, "flex": 0},
                         {"type": "text", "text": f"{prefix}{item}", "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
                     ],
                 })
 
+        raw_advice = brief.get('advice')
+        if isinstance(raw_advice, dict):
+            advice_list = raw_advice.get('reasons') or ([raw_advice.get('summary')] if raw_advice.get('summary') else [])
+        elif isinstance(raw_advice, list):
+            advice_list = raw_advice
+        else:
+            advice_list = []
+
+        advice_clean_list: List[str] = []
         advice_rows = []
-        for idx, a in enumerate((brief.get('advice') or [])[:4], 1):
+        for idx, a in enumerate(advice_list[:4], 1):
             advice_text = _clean_reason(a, max_len=140)
+            if not advice_text:
+                continue
+            advice_clean_list.append(advice_text)
             tone = _reason_tone(advice_text)
             number_color = tone['color'] if tone else '#6B7280'
             prefix = f"{tone['emoji']} {tone['label']} — " if tone else ''
@@ -536,6 +571,19 @@ class LineReportRenderer:
         if not advice_rows:
             advice_rows = [{"type": "text", "text": "ติดตามข่าวสารก่อนตัดสินใจ", "size": "xs", "color": "#4B5563"}]
 
+        # Prepare clipboard text (<= 950 characters for LINE clipboardText limit)
+        clip_lines = [
+            f"สรุปหุ้น {sym} (สถานะ: {impact_cfg['label']})",
+            summary_text,
+        ]
+        if flash:
+            clip_lines.append("\nข่าวเด่น:")
+            clip_lines.extend(f"• {f}" for f in flash[:2])
+        if advice_clean_list:
+            clip_lines.append("\nคำแนะนำ:")
+            clip_lines.extend(f"• {a}" for a in advice_clean_list[:3])
+        clipboard_text = "\n".join(clip_lines)[:950]
+
         body_contents = [
             # Header: symbol + impact badge
             {
@@ -546,7 +594,7 @@ class LineReportRenderer:
                         "type": "box",
                         "layout": "vertical",
                         "contents": [
-                            {"type": "text", "text": f"📰 Market Brief", "size": "xxs", "color": "#6B7280"},
+                            {"type": "text", "text": "Market Brief", "size": "xxs", "color": "#6B7280"},
                             {"type": "text", "text": sym, "weight": "bold", "size": "xl", "color": "#111827"},
                         ],
                         "flex": 1,
@@ -557,7 +605,7 @@ class LineReportRenderer:
                         "contents": [
                             {
                                 "type": "text",
-                                "text": f"{cfg['emoji']} {impact}",
+                                "text": f"● {impact_cfg['label']}",
                                 "size": "xxs",
                                 "weight": "bold",
                                 "color": cfg['color'],
@@ -581,7 +629,7 @@ class LineReportRenderer:
                 "margin": "md",
             },
             {"type": "separator", "margin": "md"},
-            # Top news flash (2 one-liners; full ranked detail behind News button)
+            # Top news flash
             {"type": "text", "text": news_header, "size": "xs", "weight": "bold", "color": "#374151", "margin": "md", "wrap": True},
             {
                 "type": "box",
@@ -592,7 +640,7 @@ class LineReportRenderer:
             },
             # Advice — tagged by source bucket (news/financials/stats)
             {"type": "separator", "margin": "md"},
-            {"type": "text", "text": "💡 คำแนะนำ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+            {"type": "text", "text": "คำแนะนำ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
             {
                 "type": "box",
                 "layout": "vertical",
@@ -600,7 +648,7 @@ class LineReportRenderer:
                 "spacing": "xs",
                 "contents": (advice_rows if not reason_rows else advice_rows + [
                     {"type": "separator", "margin": "sm"},
-                    {"type": "text", "text": "🧭 เหตุผลแยกตามแหล่งข้อมูล:", "size": "xxs", "weight": "bold", "color": "#374151"},
+                    {"type": "text", "text": "เหตุผลแยกตามแหล่งข้อมูล:", "size": "xxs", "weight": "bold", "color": "#374151"},
                     {"type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": reason_rows},
                 ]),
             },
@@ -617,6 +665,44 @@ class LineReportRenderer:
             },
         ]
 
+        footer_contents = {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "xs",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "secondary",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "📊 Financials", "data": f"action=financials&symbol={sym}"},
+                        },
+                        {
+                            "type": "button",
+                            "style": "secondary",
+                            "height": "sm",
+                            "action": {"type": "postback", "label": "📰 ข่าวต้นฉบับ", "data": f"action=news&symbol={sym}"},
+                        },
+                    ],
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#1F2937",
+                    "height": "sm",
+                    "action": {
+                        "type": "clipboard",
+                        "label": "📋 คัดลอกสรุป",
+                        "clipboardText": clipboard_text,
+                    },
+                },
+            ],
+        }
+
         return {
             "type": "bubble",
             "size": "mega",
@@ -625,25 +711,290 @@ class LineReportRenderer:
                 "layout": "vertical",
                 "contents": body_contents,
             },
-            "footer": {
+            "footer": footer_contents,
+        }
+
+    @classmethod
+    def render_financials_card(
+        cls,
+        symbol: str,
+        snapshot: Optional[Any] = None,
+        fin_data: Optional[Dict[str, Any]] = None,
+        report: Optional[Dict[str, Any]] = None,
+        chart_url: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """In-depth financial & technical analysis card with sparkline chart and single Copy button."""
+        from analysis.financial_ratios import compute_ratios, build_financial_reasoning
+        from analysis.indicators import infer_trend
+
+        sym = str(symbol).upper()
+        if snapshot is not None:
+            price = float(snapshot.price or 0.0)
+            technicals = snapshot.technicals or {}
+            pe = snapshot.pe_ratio
+            div_yield = snapshot.div_yield
+            history = snapshot.history or []
+            outlook = infer_trend(price, technicals)
+            updated_at = str(snapshot.collected_at)[:19].replace('T', ' ')
+        elif report is not None:
+            metrics = report.get('metrics', {})
+            price = float(metrics.get('price') or report.get('price') or 0.0)
+            technicals = report.get('technicals') or metrics.get('technicals') or {}
+            pe = metrics.get('pe_ratio')
+            div_yield = metrics.get('div_yield')
+            history = report.get('history') or []
+            outlook = report.get('signal') or 'Neutral'
+            updated_at = report.get('updated_at') or 'ล่าสุด'
+        else:
+            price, technicals, pe, div_yield, history, outlook, updated_at = 0.0, {}, None, None, [], 'Neutral', 'ล่าสุด'
+
+        cfg = cls.OUTLOOK_CONFIG.get(outlook, cls.OUTLOOK_CONFIG['Neutral'])
+        currency = "฿" if sym.endswith('.BK') else "$"
+        price_str = f"{currency} {price:,.2f}" if price else "-"
+
+        # Sparkline chart
+        if not chart_url and len(history) >= 2:
+            chart_url = ChartService.generate_sparkline_url(history, trend=outlook)
+
+        # Key metrics row
+        pe_str = f"{float(pe):.1f}x" if pe not in (None, 'N/A', '-', 0) else "-"
+        yield_str = f"{float(div_yield):.1f}%" if div_yield not in (None, 'N/A', '-', 0) else "-"
+        rsi_str = str(technicals.get('rsi') or "-")
+        vol_str = str(technicals.get('volatility') or "-")
+
+        body_contents = [
+            # Header
+            {
                 "type": "box",
                 "layout": "horizontal",
-                "spacing": "xs",
                 "contents": [
                     {
-                        "type": "button",
-                        "style": "secondary",
-                        "height": "sm",
-                        "action": {"type": "postback", "label": "📊 Financials", "data": f"action=financials&symbol={sym}"},
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {"type": "text", "text": "ข้อมูลงบการเงินและเทคนิคอล", "size": "xxs", "color": "#6B7280"},
+                            {"type": "text", "text": sym, "weight": "bold", "size": "xl", "color": "#111827"},
+                            {"type": "text", "text": f"อัปเดต: {updated_at}", "size": "xxs", "color": "#9CA3AF"},
+                        ],
+                        "flex": 1,
                     },
                     {
-                        "type": "button",
-                        "style": "secondary",
-                        "height": "sm",
-                        "action": {"type": "postback", "label": "🔄 Refresh", "data": f"action=refresh&symbol={sym}"},
+                        "type": "box",
+                        "layout": "vertical",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"● {cfg['text']}",
+                                "size": "xxs",
+                                "weight": "bold",
+                                "color": cfg['color'],
+                                "align": "center",
+                            }
+                        ],
+                        "backgroundColor": cfg['bg'],
+                        "cornerRadius": "md",
+                        "paddingAll": "6px",
+                        "flex": 0,
                     },
                 ],
             },
+            # Price
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "margin": "md",
+                "contents": [
+                    {"type": "text", "text": price_str, "size": "xxl", "weight": "bold", "color": "#111827"},
+                ],
+            },
+            {"type": "separator", "margin": "md"},
+        ]
+
+        if chart_url:
+            body_contents.extend([
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "margin": "sm",
+                    "contents": [
+                        {"type": "text", "text": "กราฟแนวโน้มราคา 30 วัน", "size": "xxs", "color": "#6B7280", "align": "center"},
+                        {
+                            "type": "image",
+                            "url": chart_url,
+                            "size": "full",
+                            "aspectRatio": "2:1",
+                            "aspectMode": "fit",
+                            "margin": "xs",
+                        },
+                    ],
+                },
+                {"type": "separator", "margin": "sm"},
+            ])
+
+        # Metrics grid
+        body_contents.append({
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "md",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "P/E", "size": "xxs", "color": "#9CA3AF"},
+                        {"type": "text", "text": pe_str, "size": "xs", "weight": "bold", "color": "#1F2937"},
+                    ],
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "Dividend", "size": "xxs", "color": "#9CA3AF"},
+                        {"type": "text", "text": yield_str, "size": "xs", "weight": "bold", "color": "#1F2937"},
+                    ],
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "RSI(14)", "size": "xxs", "color": "#9CA3AF"},
+                        {"type": "text", "text": rsi_str, "size": "xs", "weight": "bold", "color": "#1F2937"},
+                    ],
+                },
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {"type": "text", "text": "Volatility", "size": "xxs", "color": "#9CA3AF"},
+                        {"type": "text", "text": vol_str, "size": "xs", "weight": "bold", "color": "#1F2937"},
+                    ],
+                },
+            ],
+        })
+
+        # Financial statement ratios reasoning
+        raw = (fin_data or {}).get('raw') or {}
+        fin_reasoning: List[str] = []
+        if raw:
+            ratios = compute_ratios(raw)
+            fin_reasoning = build_financial_reasoning(raw, ratios, price)
+        if fin_reasoning:
+            body_contents.append({"type": "separator", "margin": "md"})
+            body_contents.append({
+                "type": "text",
+                "text": "วิเคราะห์อัตราส่วนงบการเงินล่าสุด:",
+                "size": "xs", "weight": "bold", "color": "#1D4ED8", "margin": "md",
+            })
+            fin_rows = []
+            for line in fin_reasoning[:4]:
+                fin_rows.append({
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "xs",
+                    "contents": [
+                        {"type": "text", "text": "•", "size": "xs", "color": "#1D4ED8", "flex": 0},
+                        {"type": "text", "text": line, "size": "xs", "color": "#333333", "wrap": True, "flex": 1},
+                    ],
+                })
+            body_contents.append({
+                "type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": fin_rows,
+            })
+
+        # Technical indicators breakdown
+        indicator_sections = build_indicator_sections(technicals, price)
+        if indicator_sections:
+            body_contents.append({"type": "separator", "margin": "md"})
+            body_contents.append({
+                "type": "text",
+                "text": "บทวิเคราะห์เชิงเทคนิค (แยกตามช่วงเวลา):",
+                "size": "xs", "weight": "bold", "color": "#374151", "margin": "md",
+            })
+            for sec in indicator_sections:
+                body_contents.append({
+                    "type": "text", "text": sec['title'],
+                    "size": "xs", "weight": "bold", "color": "#1D4ED8", "margin": "md",
+                })
+                sec_rows = []
+                for line in sec['lines']:
+                    sec_rows.append({
+                        "type": "box",
+                        "layout": "vertical",
+                        "margin": "xs",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": f"• {line['label']}: {line['value']} {line['emoji']}",
+                                "size": "xs", "weight": "bold", "color": "#1F2937", "wrap": True,
+                            },
+                            {
+                                "type": "text",
+                                "text": f"{line['tone_label']} — {line['explain']}",
+                                "size": "xxs", "color": "#6B7280", "wrap": True, "margin": "xs",
+                                "offsetStart": "12px",
+                            },
+                        ],
+                    })
+                body_contents.append({
+                    "type": "box", "layout": "vertical", "margin": "xs", "spacing": "xs", "contents": sec_rows,
+                })
+
+        # Disclaimer
+        body_contents.extend([
+            {"type": "separator", "margin": "md"},
+            {
+                "type": "text",
+                "text": "ข้อมูลนี้เป็นข้อมูลประกอบการตัดสินใจ ไม่ใช่คำแนะนำการลงทุนเฉพาะบุคคล",
+                "size": "xxs",
+                "color": "#9CA3AF",
+                "wrap": True,
+                "margin": "sm",
+                "align": "center",
+            },
+        ])
+
+        # Prepare clipboard text for AI prompting
+        copy_lines = [
+            f"ข้อมูลวิเคราะห์งบการเงินและเทคนิคอล {sym} (ราคา: {price_str}, สถานะ: {outlook})",
+            f"P/E: {pe_str} | Div Yield: {yield_str} | RSI(14): {rsi_str} | ความผันผวน: {vol_str}",
+        ]
+        if fin_reasoning:
+            copy_lines.append("\nวิเคราะห์อัตราส่วนงบการเงิน:")
+            copy_lines.extend(f"• {line}" for line in fin_reasoning[:4])
+        if indicator_sections:
+            copy_lines.append("\nสัญญาณเทคนิคอล:")
+            for sec in indicator_sections[:2]:
+                for l in sec.get('lines', [])[:2]:
+                    copy_lines.append(f"• {l['label']}: {l['value']} ({l['explain']})")
+        clipboard_text = "\n".join(copy_lines)[:950]
+
+        # Footer has ONLY ONE button: Copy
+        footer_contents = {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#1F2937",
+                    "height": "sm",
+                    "action": {
+                        "type": "clipboard",
+                        "label": "📋 คัดลอกข้อมูลวิเคราะห์",
+                        "clipboardText": clipboard_text,
+                    },
+                }
+            ],
+        }
+
+        return {
+            "type": "bubble",
+            "size": "mega",
+            "body": {
+                "type": "box",
+                "layout": "vertical",
+                "contents": body_contents,
+            },
+            "footer": footer_contents,
         }
 
     @classmethod
@@ -674,7 +1025,7 @@ class LineReportRenderer:
                             {"type": "text", "text": f"{price}", "size": "sm", "color": "#4B5563", "flex": 2},
                             {
                                 "type": "text",
-                                "text": outlook,
+                                "text": f"● {outlook}",
                                 "size": "xxs",
                                 "weight": "bold",
                                 "color": cfg['color'],
@@ -690,15 +1041,15 @@ class LineReportRenderer:
             if reason and not _PLACEHOLDER_RE.search(reason) and not _REDUNDANT_STATS_RE.match(reason):
                 digest_tag = _BUCKET_TAGS.get(str(item.get('reason_bucket') or ''), '')
                 digest_line = f"{digest_tag} {reason}" if digest_tag else reason
-                stock_rows.append(                    {
-                        "type": "text",
-                        "text": f"↳ {digest_line[:110]}{'…' if len(digest_line) > 110 else ''}",
-                        "size": "xxs",
-                        "color": "#6B7280",
-                        "wrap": True,
-                        "margin": "xs",
-                        "offsetStart": "12px",
-                    })
+                stock_rows.append({
+                    "type": "text",
+                    "text": f"↳ {digest_line[:110]}{'…' if len(digest_line) > 110 else ''}",
+                    "size": "xxs",
+                    "color": "#6B7280",
+                    "wrap": True,
+                    "margin": "xs",
+                    "offsetStart": "12px",
+                })
 
         if not stock_rows:
             stock_rows = [{"type": "text", "text": "ไม่มีหุ้นใน Watchlist ของคุณ", "size": "xs", "color": "#9CA3AF"}]
@@ -712,7 +1063,7 @@ class LineReportRenderer:
                 "contents": [
                     {
                         "type": "text",
-                        "text": "🌅 สรุปภาวะตลาดรายวัน (Daily Digest)",
+                        "text": "สรุปภาวะตลาดรายวัน (Daily Digest)",
                         "weight": "bold",
                         "size": "lg",
                         "color": "#111827",
@@ -736,7 +1087,7 @@ class LineReportRenderer:
                         "contents": [
                             {
                                 "type": "text",
-                                "text": f"⚠️ หุ้นที่ต้องจับตาเป็นพิเศษ: {attention_count} ตัว",
+                                "text": f"● หุ้นที่ต้องจับตาเป็นพิเศษ: {attention_count} ตัว",
                                 "size": "xs",
                                 "weight": "bold",
                                 "color": "#8A6100" if attention_count > 0 else "#16803C",
@@ -744,7 +1095,7 @@ class LineReportRenderer:
                         ],
                     },
                     {"type": "separator", "margin": "md"},
-                    {"type": "text", "text": "⭐ หุ้นเด่นประจำวัน:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
+                    {"type": "text", "text": "หุ้นใน Watchlist ของคุณ:", "size": "xs", "weight": "bold", "color": "#374151", "margin": "md"},
                     {
                         "type": "box",
                         "layout": "vertical",

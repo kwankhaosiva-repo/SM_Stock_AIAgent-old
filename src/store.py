@@ -327,10 +327,15 @@ class FirestoreBackend:
     # schedules
     def get_schedule(self, user_key: str) -> Optional[Dict]:
         doc = self.client.collection('schedules').document(user_key).get()
-        return doc.to_dict() if doc.exists else None
+        if not doc.exists:
+            return None
+        data = doc.to_dict() or {}
+        data.setdefault('user_key', doc.id)
+        return data
 
     def upsert_schedule(self, user_key: str, **fields) -> None:
         fields = {k: v for k, v in fields.items() if v is not None}
+        fields['user_key'] = user_key
         fields['updated_at'] = _utcnow()
         self.client.collection('schedules').document(user_key).set(fields, merge=True)
 
@@ -340,7 +345,7 @@ class FirestoreBackend:
             .where('is_active', '==', True)
             .where('alert_time', '==', alert_time)
         )
-        return [doc.to_dict() for doc in query.stream()]
+        return [{'user_key': doc.id, **(doc.to_dict() or {})} for doc in query.stream()]
 
     # market snapshots (15-min shared cache) — one doc per symbol
     def get_valid_snapshot(self, symbol: str) -> Optional[Dict]:

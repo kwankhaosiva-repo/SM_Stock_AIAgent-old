@@ -9,9 +9,9 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 _IMPACT_CFG = {
-    'Positive': {'emoji': '🟢', 'color': '#16803C'},
-    'Mixed': {'emoji': '🟡', 'color': '#8A6100'},
-    'Negative': {'emoji': '🔴', 'color': '#B42318'},
+    'Positive': {'emoji': '●', 'color': '#16803C'},
+    'Mixed': {'emoji': '●', 'color': '#8A6100'},
+    'Negative': {'emoji': '●', 'color': '#B42318'},
 }
 
 
@@ -37,7 +37,7 @@ def render_news_detail_card(symbol: str, brief: Dict[str, Any]) -> Dict[str, Any
                     "layout": "vertical",
                     "flex": 1,
                     "contents": [
-                        {"type": "text", "text": "📰 ข่าวที่กระทบราคา (เรียงตามน้ำหนัก)", "size": "xxs", "color": "#6B7280"},
+                        {"type": "text", "text": "ข่าวที่กระทบราคา (เรียงตามน้ำหนัก)", "size": "xxs", "color": "#6B7280"},
                         {"type": "text", "text": str(symbol).upper(), "weight": "bold", "size": "xl", "color": "#111827"},
                     ],
                 },
@@ -143,20 +143,13 @@ def render_news_detail_card(symbol: str, brief: Dict[str, Any]) -> Dict[str, Any
         "body": {"type": "box", "layout": "vertical", "contents": contents},
         "footer": {
             "type": "box",
-            "layout": "horizontal",
-            "spacing": "xs",
+            "layout": "vertical",
             "contents": [
                 {
                     "type": "button",
                     "style": "secondary",
                     "height": "sm",
-                    "action": {"type": "postback", "label": "📊 Financials", "data": f"action=financials&symbol={str(symbol).upper()}"},
-                },
-                {
-                    "type": "button",
-                    "style": "secondary",
-                    "height": "sm",
-                    "action": {"type": "postback", "label": "🔄 Refresh", "data": f"action=refresh&symbol={str(symbol).upper()}"},
+                    "action": {"type": "postback", "label": "📊 Financials (เจาะลึกงบ/เทคนิคอล)", "data": f"action=financials&symbol={str(symbol).upper()}"},
                 },
             ],
         },

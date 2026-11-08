@@ -23,8 +23,8 @@ def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=N
         }
         try:
             report = workflow.run(symbol, profile, user_key=str(user_id) if user_id else None)
-            # Render using the rich LineReportRenderer
-            bubble = LineReportRenderer.render_stock_card(report)
+            # Render Market Brief (Executive Summary) with news, status, advice & copy button
+            bubble = LineReportRenderer.render_market_brief_card(symbol, report)
             bubbles.append(bubble)
             if callback_func:
                 callback_func(bubble, report)
@@ -38,7 +38,7 @@ def process_stock_list(stocks, callback_func=None, user_id=None, user_settings=N
                 'technicals': {},
                 'updated_at': '',
             }
-            bubble = LineReportRenderer.render_stock_card(fallback_report)
+            bubble = LineReportRenderer.render_market_brief_card(symbol, fallback_report)
             bubbles.append(bubble)
             if callback_func:
                 callback_func(bubble, None)
