@@ -49,6 +49,8 @@ def process_report_job(payload: Dict[str, Any]):
             store.upsert_delivery(request_id, user_key, 'failed', error_message='No bubbles generated')
             return
 
+        summary_text = f"สรุปการวิเคราะห์หุ้น {len(collected_reports)} ตัวใน Watchlist ของคุณ"
+
         # Rule 8: Create a daily digest card first if multiple stocks
         if len(bubbles) > 1:
             attention_count = sum(
@@ -72,7 +74,7 @@ def process_report_job(payload: Dict[str, Any]):
                     'reason_bucket': bucket,
                 })
             digest_bubble = LineReportRenderer.render_daily_digest_card(
-                summary_text=f"สรุปการวิเคราะห์หุ้น {len(collected_reports)} ตัวใน Watchlist ของคุณ",
+                summary_text=summary_text,
                 attention_count=attention_count,
                 top_stocks=top_stocks,
             )

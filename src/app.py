@@ -4,7 +4,7 @@ import sys
 # Ensure src is in python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from flask import Flask, send_file, jsonify
+from flask import Flask, send_file, jsonify, request
 from config import Config
 from api.line_webhook import line_webhook_bp
 from api.web_chat import web_chat_bp
@@ -76,12 +76,33 @@ def debug_config():
 
 @app.route("/cron/trigger", methods=['GET', 'POST'])
 def cron_trigger():
-    """Endpoint for Google Cloud Scheduler or HTTP cron to trigger hourly checks."""
-    print("[CRON] Triggered by Cloud Scheduler")
-    from tasks.dispatcher import check_jobs
+    """Endpoint for Google Cloud Scheduler or HTTP cron to trigger hourly checks.
+    Executes synchronously to prevent Cloud Run scale-to-zero / CPU freeze from dropping jobs.
+    Optional query parameters:
+      - time: HH:00 (e.g. 09:00) to check a specific hour
+      - force: true/1 to bypass last_run check for testing
+      - user_id: specific user key to test
+    """
+    target_time = request.args.get('time')
+    force = request.args.get('force', '').lower() in ('true', '1')
+    user_key = request.args.get('user_id') or request.args.get('user_key')
 
-    check_jobs()
-    return "Cron Job Completed", 200
+    print(f"[CRON] Triggered (time={target_time}, force={force}, user_key={user_key})")
+    from tasks.dispatcher import check_jobs, process_schedule
+    import store
+
+    if user_key:
+        sched = store.get_schedule(user_key) or {'user_key': user_key}
+        process_schedule(sched, sync=True)
+        processed = 1
+    else:
+        processed = check_jobs(target_time=target_time, force=force, sync=True)
+
+    return jsonify({
+        "status": "ok",
+        "message": "Cron Job Completed",
+        "processed": processed,
+    }), 200
 
 
 if __name__ == "__main__":

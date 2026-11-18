@@ -147,10 +147,12 @@ class MemoryBackend:
             sched['updated_at'] = _utcnow()
 
     def list_active_schedules(self, alert_time: str) -> List[Dict]:
+        clean_time = alert_time.strip()
+        time_variants = {clean_time, f"0{clean_time}" if len(clean_time) == 4 else clean_time.lstrip('0')}
         with self.lock:
             return [
                 dict(s) for s in self.schedules.values()
-                if s.get('is_active') and s.get('alert_time') == alert_time
+                if s.get('is_active') and str(s.get('alert_time', '')).strip() in time_variants
             ]
 
     # market snapshots (15-min shared cache)
@@ -299,7 +301,12 @@ class FirestoreBackend:
         return self.client.collection('users').document(user_key).collection('watchlist')
 
     def list_watchlist(self, user_key: str) -> List[Dict]:
-        return [d.to_dict() for d in self._watch_ref(user_key).stream()]
+        items = []
+        for d in self._watch_ref(user_key).stream():
+            data = d.to_dict() or {}
+            data.setdefault('symbol', d.id)
+            items.append(data)
+        return items
 
     def get_watch_item(self, user_key: str, symbol: str) -> Optional[Dict]:
         doc = self._watch_ref(user_key).document(_clean_symbol(symbol)).get()
@@ -340,12 +347,29 @@ class FirestoreBackend:
         self.client.collection('schedules').document(user_key).set(fields, merge=True)
 
     def list_active_schedules(self, alert_time: str) -> List[Dict]:
-        query = (
-            self.client.collection('schedules')
-            .where('is_active', '==', True)
-            .where('alert_time', '==', alert_time)
-        )
-        return [{'user_key': doc.id, **(doc.to_dict() or {})} for doc in query.stream()]
+        clean_time = alert_time.strip()
+        time_variants = {clean_time, f"0{clean_time}" if len(clean_time) == 4 else clean_time.lstrip('0')}
+        try:
+            query = (
+                self.client.collection('schedules')
+                .where('is_active', '==', True)
+                .where('alert_time', '==', clean_time)
+            )
+            results = [{'user_key': doc.id, **(doc.to_dict() or {})} for doc in query.stream()]
+            if results:
+                return results
+        except Exception:
+            pass
+
+        # Fallback for indexless queries or formatted variants ('09:00' vs '9:00')
+        query = self.client.collection('schedules').where('is_active', '==', True)
+        results = []
+        for doc in query.stream():
+            data = doc.to_dict() or {}
+            doc_time = str(data.get('alert_time', '')).strip()
+            if doc_time in time_variants:
+                results.append({'user_key': doc.id, **data})
+        return results
 
     # market snapshots (15-min shared cache) — one doc per symbol
     def get_valid_snapshot(self, symbol: str) -> Optional[Dict]:

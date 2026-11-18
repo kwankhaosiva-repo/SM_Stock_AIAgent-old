@@ -10,8 +10,10 @@ logger = logging.getLogger(__name__)
 _development_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='report-worker')
 
 
-def enqueue_report(user_id, line_user_id, items, user_settings, request_id=None):
-    """Queue work outside the webhook; Redis/RQ is the production transport."""
+def enqueue_report(user_id, line_user_id, items, user_settings, request_id=None, sync: bool = False):
+    """Queue work outside the webhook; Redis/RQ is the production transport.
+    When sync=True (or REPORT_QUEUE_MODE='sync'), processes synchronously in the caller's thread.
+    This is essential for Cloud Run /cron/trigger endpoints to prevent scale-to-zero CPU freeze."""
     # Canonical UUID string — LINE's X-Line-Retry-Key requires the hyphenated form.
     request_id = request_id or str(uuid4())
     payload = {
@@ -21,6 +23,11 @@ def enqueue_report(user_id, line_user_id, items, user_settings, request_id=None)
         'user_settings': user_settings,
         'request_id': request_id,
     }
+    if sync or Config.REPORT_QUEUE_MODE == 'sync':
+        from tasks.worker import process_report_job
+        process_report_job(payload)
+        return {'id': request_id, 'transport': 'sync'}
+
     if Config.REDIS_URL and Config.REPORT_QUEUE_MODE != 'local':
         try:
             from redis import Redis
